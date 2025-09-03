@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>終極審判：電車難題 — 分叉軌道 Demo（強制善惡各1 + 特性顯示）</title>
+  <title>終極審判：電車難題 — 分叉軌道 Demo（強制善惡各1 + 自動輪到對手）</title>
   <style>
     :root{ --bg:#0b1020; --panel:#0f1630; --line:#1f2a55; --fg:#e6edf3; --muted:#9aa7bd; --card:#17213f; --accent:#5bd1ff; --danger:#ff6b6b; }
     html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial}
@@ -12,6 +12,7 @@
     header{display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line)}
     h1{font-size:18px;margin:0}
     .btn{cursor:pointer;border:1px solid #2a355f;background:#121a36;color:var(--fg);padding:8px 12px;border-radius:10px}
+    .btn[disabled]{opacity:.5;cursor:not-allowed}
     .pill{font-size:12px;border:1px solid #2a355f;border-radius:999px;padding:4px 8px;display:inline-block;color:#c7d2e6}
 
     .board{display:grid;grid-template-columns:1fr 420px;gap:16px;padding:16px}
@@ -24,7 +25,7 @@
     .lane.A{top:120px;left:285px;transform:rotate(-8deg)}
     .lane.B{bottom:118px;left:285px;transform:rotate(8deg)}
 
-    .card{background:var(--card);border:1px solid #2b3a6b;border-radius:10px;padding:6px 8px;min-width:150px;max-width:220px;position:relative}
+    .card{background:var(--card);border:1px solid #2b3a6b;border-radius:10px;padding:6px 8px;min-width:150px;max-width:240px;position:relative}
     .card .type{font-size:12px;color:var(--muted)}
     .card .title{font-weight:700}
     .mods{margin-top:4px;display:flex;flex-direction:column;gap:2px}
@@ -37,18 +38,20 @@
     .tab.active{background:#1a2346;color:#cfe4ff}
     .hand{display:grid;grid-template-columns:1fr;gap:8px;margin-top:8px}
     .cardBtn{background:#161f3e;border:1px solid #2a355f;border-radius:10px;padding:6px 8px;text-align:left;cursor:pointer}
+    .cardBtn.sel{outline:2px solid var(--accent)}
 
-    .log{background:#0e152f;border:1px solid var(--line);border-radius:12px;padding:8px;height:200px;overflow:auto;white-space:pre-wrap;color:#cdd9e5}
+    .log{background:#0e152f;border:1px solid var(--line);border-radius:12px;padding:8px;height:220px;overflow:auto;white-space:pre-wrap;color:#cdd9e5}
   </style>
 </head>
 <body>
   <div class="wrap">
     <header>
-      <h1>🎚️ 電車難題 — 分叉軌道（強制善惡各1 + 特性顯示）</h1>
-      <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
+      <h1>🎚️ 電車難題 — 分叉軌道（強制善惡各1）</h1>
+      <div style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span class="pill">當前玩家：<b id="turnPlayer">A</b></span>
-        <span class="pill">當前階段：<b id="phaseLabel">善良卡</b></span>
-        <button class="btn" id="btnNext">進入下一階段</button>
+        <span class="pill">階段：<b id="phaseLabel">善良卡</b></span>
+        <button class="btn" id="btnSwitch" disabled>切換玩家</button>
+        <button class="btn" id="btnNext" disabled>進入裁決</button>
         <button class="btn" id="btnJudge" disabled>列車長裁決</button>
         <button class="btn" id="btnReset">重置回合</button>
       </div>
@@ -58,7 +61,7 @@
       <section class="stage has-bg" id="stage">
         <div class="lane A" id="laneA" data-side="A"></div>
         <div class="lane B" id="laneB" data-side="B"></div>
-        <div class="legend">規則：每邊至少出1張善良卡、1張邪惡卡，然後進入特性→裁決。</div>
+        <div class="legend">流程：A/B 各在自己軌道放 ≥1【善】 → A/B 各在對方軌道放 ≥1【惡】 → 特性（雙方可輪流出）→ 裁決。</div>
       </section>
 
       <aside class="side">
@@ -78,11 +81,12 @@
     </main>
 
     <footer>
-      <span class="pill">下一步：計分與多輪次</span>
+      <span class="pill">特性會顯示在卡片下方；僅在特性階段可用。</span>
     </footer>
   </div>
 
   <script>
+  // ---------- 狀態 ----------
   const state = {
     turn:'A',
     hands:{
@@ -92,116 +96,153 @@
     lanes:{A:[],B:[]},
     activeTab:'innocent',
     selected:null,
-    phase:'innocent',
+    phase:'innocent', // innocent -> guilty -> modifier -> judge -> end
     requirements:{A:{innocent:false,guilty:false},B:{innocent:false,guilty:false}}
   };
   const initialHands = JSON.parse(JSON.stringify(state.hands));
 
-  const handEl=document.getElementById('hand');
-  const laneA=document.getElementById('laneA');
-  const laneB=document.getElementById('laneB');
-  const logEl=document.getElementById('log');
-  const phaseLabel=document.getElementById('phaseLabel');
-  const btnNext=document.getElementById('btnNext');
-  const btnJudge=document.getElementById('btnJudge');
+  const handEl = document.getElementById('hand');
+  const laneA = document.getElementById('laneA');
+  const laneB = document.getElementById('laneB');
+  const logEl = document.getElementById('log');
+  const phaseLabel = document.getElementById('phaseLabel');
+  const btnNext = document.getElementById('btnNext');
+  const btnJudge = document.getElementById('btnJudge');
+  const btnSwitch = document.getElementById('btnSwitch');
+  const turnPlayer = document.getElementById('turnPlayer');
 
-  function log(m){ logEl.textContent+=`${new Date().toLocaleTimeString()} ${m}\n`; logEl.scrollTop=logEl.scrollHeight; }
-  const tabLabel=t=>t==='innocent'?'善':t==='guilty'?'惡':'特';
+  const other = p=> p==='A'?'B':'A';
+  const tabLabel = t => t==='innocent'?'善': t==='guilty'?'惡':'特';
+  function log(m){ logEl.textContent += `${new Date().toLocaleTimeString()} ${m}
+`; logEl.scrollTop = logEl.scrollHeight; }
 
+  // ---------- 手牌 ----------
   function renderHand(){
     handEl.innerHTML='';
-    const me=state.turn; const list=state.hands[me][state.activeTab];
-    if(!list.length){const d=document.createElement('div');d.style.color='var(--muted)';d.textContent='（無卡）';handEl.appendChild(d);return;}
+    const me = state.turn; const list = state.hands[me][state.activeTab];
+    if (!list.length){ const d=document.createElement('div'); d.style.color='var(--muted)'; d.textContent='（無卡）'; handEl.appendChild(d); return; }
     list.forEach((title,i)=>{
-      const btn=document.createElement('div');btn.className='cardBtn';
-      btn.innerHTML=`<strong>${title}</strong> <span class="pill">${tabLabel(state.activeTab)}</span>`;
-      btn.onclick=()=>playCard({type:state.activeTab,title,from:me,index:i});
+      const btn = document.createElement('div');
+      btn.className = 'cardBtn';
+      if (state.selected && state.selected.from===me && state.selected.type===state.activeTab && state.selected.index===i) btn.classList.add('sel');
+      btn.innerHTML = `<strong>${title}</strong> <span class="pill">${tabLabel(state.activeTab)}</span>`;
+      btn.onclick = ()=>{
+        // 同卡再點 = 取消選中（僅特性階段有用）
+        if (state.selected && state.selected.from===me && state.selected.type===state.activeTab && state.selected.index===i){ state.selected=null; renderHand(); return; }
+        if (state.activeTab==='modifier'){
+          if (state.phase!=='modifier'){ log('僅在【特性】階段可選擇特性卡'); return; }
+          state.selected = {type:'modifier', title, from:me, index:i};
+          renderHand(); log(`選中特性卡：${title}，請點場上目標卡`);
+        } else {
+          // 出善/惡卡
+          playCard({type:state.activeTab, title, from:me, index:i});
+        }
+      };
       handEl.appendChild(btn);
     });
   }
 
+  // ---------- 場上卡 ----------
   function renderLanes(){
     laneA.innerHTML=''; laneB.innerHTML='';
-    state.lanes.A.forEach((c,i)=>laneA.appendChild(renderCardEl('A',i,c)));
-    state.lanes.B.forEach((c,i)=>laneB.appendChild(renderCardEl('B',i,c)));
+    state.lanes.A.forEach((c,i)=> laneA.appendChild(renderCardEl('A',i,c)));
+    state.lanes.B.forEach((c,i)=> laneB.appendChild(renderCardEl('B',i,c)));
   }
 
-  function renderCardEl(side,idx,card){
-    const wrap=document.createElement('div');wrap.className='card';
-    wrap.innerHTML=`<div class="type">${card.type==='innocent'?'善良':'邪惡'}・${card.owner}</div><div class="title">${card.title}</div>`;
-    const mods=document.createElement('div');mods.className='mods';
-    card.mods.forEach(m=>{const d=document.createElement('div');d.className='mod';d.textContent=m.title;mods.appendChild(d);});
+  function renderCardEl(side, idx, card){
+    const wrap = document.createElement('div'); wrap.className='card';
+    wrap.innerHTML = `<div class="type">${card.type==='innocent'?'善良':'邪惡'}・${card.owner}</div><div class="title">${card.title}</div>`;
+    const mods = document.createElement('div'); mods.className = 'mods';
+    card.mods.forEach(m=>{ const d=document.createElement('div'); d.className='mod'; d.textContent=m.title; mods.appendChild(d); });
     wrap.appendChild(mods);
-    wrap.onclick=()=>{
-      if(state.selected&&state.selected.type==='modifier'&&state.phase==='modifier'){
-        const s=state.selected;card.mods.push({title:s.title,owner:s.from});
-        state.hands[s.from].modifier.splice(s.index,1);
-        state.selected=null;
-        log(`在「${card.title}」上疊加特性：${card.mods.slice(-1)[0].title}`);
-        renderAll();
-      }
-    };
+
+    // 特性：點擊已放置卡即可疊加
+    wrap.addEventListener('click', ()=>{
+      if (!state.selected || state.selected.type!=='modifier' || state.phase!=='modifier') return;
+      const s = state.selected;
+      card.mods.push({title:s.title, owner:s.from});
+      state.hands[s.from].modifier.splice(s.index,1);
+      state.selected=null;
+      log(`在「${card.title}」上疊加特性：${card.mods.slice(-1)[0].title}`);
+      // 特性階段：可手動【切換玩家】使用對方手牌，或保持當前
+      renderAll();
+    }, true);
+
     return wrap;
   }
 
+  // ---------- 出牌邏輯（自動輪到對手） ----------
   function playCard(sel){
-    if(!sel) return;
-    if(sel.type==='modifier'){state.selected=sel;log(`選中特性卡：${sel.title}，點場上目標卡`);return;}
-    const me=state.turn;
-    if(state.phase!==sel.type){log('當前階段不能出此類卡');return;}
-    let side=null;
-    if(sel.type==='innocent'){side=me;state.requirements[me].innocent=true;}
-    else if(sel.type==='guilty'){side=(me==='A'?'B':'A');state.requirements[me].guilty=true;}
-    const cardObj={title:sel.title,type:sel.type,owner:me,mods:[]};
+    if (!sel) return;
+    if (sel.type==='modifier'){ return; }
+    if (state.phase!==sel.type){ log(`當前階段是【${phaseName(state.phase)}】，不能出【${tabLabel(sel.type)}】`); return; }
+
+    const me = state.turn; let side=null;
+    if (sel.type==='innocent'){ side=me; state.requirements[me].innocent=true; }
+    if (sel.type==='guilty'){ side=other(me); state.requirements[me].guilty=true; }
+
+    const cardObj = {title:sel.title, type:sel.type, owner:me, mods:[]};
     state.lanes[side].push(cardObj);
     state.hands[sel.from][sel.type].splice(sel.index,1);
     log(`玩家 ${me} 在軌道 ${side} 出【${tabLabel(sel.type)}】「${sel.title}」`);
-    renderAll();
-    checkPhaseProgress();
-  }
 
-  function checkPhaseProgress(){
-    if(state.phase==='innocent'){
-      if(state.requirements.A.innocent&&state.requirements.B.innocent){
-        state.phase='guilty';state.turn='A';updatePhase();
-      }
-    } else if(state.phase==='guilty'){
-      if(state.requirements.A.guilty&&state.requirements.B.guilty){
-        state.phase='modifier';state.turn='A';updatePhase();
-      }
+    // 出牌後：若對手在本階段尚未完成其【至少1張】的要求 → 輪到對手
+    if (state.phase==='innocent'){
+      if (!state.requirements[other(me)].innocent) state.turn = other(me);
+    } else if (state.phase==='guilty'){
+      if (!state.requirements[other(me)].guilty) state.turn = other(me);
     }
+
+    // 若雙方都已滿足，推進到下一階段
+    if (state.phase==='innocent' && state.requirements.A.innocent && state.requirements.B.innocent){
+      state.phase='guilty'; state.turn='A'; state.activeTab='guilty'; updatePhase();
+      log('已進入【邪惡卡】階段：A/B 需各向對方軌道至少出 1 張');
+    } else if (state.phase==='guilty' && state.requirements.A.guilty && state.requirements.B.guilty){
+      state.phase='modifier'; state.turn='A'; state.activeTab='modifier'; updatePhase();
+      log('已進入【特性】階段：雙方可在任一卡上疊加特性，完成後點「進入裁決」');
+    }
+
+    renderAll();
   }
 
-  btnNext.onclick=()=>{
-    if(state.phase==='modifier'){state.phase='judge';updatePhase();}
+  // ---------- 裁決 / 階段控制 ----------
+  btnNext.onclick = ()=>{ if (state.phase==='modifier'){ state.phase='judge'; updatePhase(); } };
+  btnJudge.onclick = ()=>{
+    const side = prompt('列車長選擇撞哪條軌道？輸入 A 或 B');
+    if (side==='A'||side==='B'){ log(`列車長裁決：撞 ${side} 軌道`); state.phase='end'; updatePhase(); }
   };
+  btnSwitch.onclick = ()=>{ if (state.phase==='modifier'){ state.turn = other(state.turn); updateHeader(); renderHand(); } };
 
-  btnJudge.onclick=()=>{
-    const side=prompt('列車長選擇撞哪條軌道？輸入 A 或 B');
-    if(side==='A'||side==='B'){log(`列車長裁決：撞 ${side} 軌道`);state.phase='end';updatePhase();}
-  };
-
-  function updatePhase(){
-    phaseLabel.textContent=state.phase==='innocent'?'善良卡':state.phase==='guilty'?'邪惡卡':state.phase==='modifier'?'特性卡':state.phase==='judge'?'裁決':'結束';
-    btnJudge.disabled=state.phase!=='judge';
+  function phaseName(p){ return p==='innocent'?'善良卡': p==='guilty'?'邪惡卡': p==='modifier'?'特性卡': p==='judge'?'裁決':'結束'; }
+  function updateHeader(){
+    turnPlayer.textContent = state.turn;
+    phaseLabel.textContent = phaseName(state.phase);
+    btnNext.disabled = state.phase!=='modifier';
+    btnJudge.disabled = state.phase!=='judge';
+    btnSwitch.disabled = state.phase!=='modifier';
   }
 
-  document.getElementById('btnReset').onclick=()=>{
-    state.lanes={A:[],B:[]};state.hands=JSON.parse(JSON.stringify(initialHands));
-    state.turn='A';state.phase='innocent';state.selected=null;state.requirements={A:{innocent:false,guilty:false},B:{innocent:false,guilty:false}};
-    updatePhase();log('回合已重置');renderAll();
+  // ---------- 控制 ----------
+  document.getElementById('btnReset').onclick = ()=>{
+    state.lanes={A:[],B:[]}; state.hands=JSON.parse(JSON.stringify(initialHands));
+    state.turn='A'; state.phase='innocent'; state.activeTab='innocent'; state.selected=null;
+    state.requirements={A:{innocent:false,guilty:false},B:{innocent:false,guilty:false}};
+    log('回合已重置'); updateHeader(); renderAll();
   };
 
+  // Tabs：僅允許切到當前階段對應的手牌
   document.querySelectorAll('.tab').forEach(t=>{
-    t.addEventListener('click',()=>{
+    t.addEventListener('click', ()=>{
+      const want = t.dataset.tab;
+      if (want!==state.phase){ log(`現在處於【${phaseName(state.phase)}】階段，無法切到【${tabLabel(want)}】`); return; }
       document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
-      t.classList.add('active');state.activeTab=t.dataset.tab;state.selected=null;renderHand();
+      t.classList.add('active'); state.activeTab=want; state.selected=null; renderHand();
     });
   });
 
-  function renderAll(){renderLanes();renderHand();}
-  renderAll();updatePhase();
-  log('提示：雙方必須各自至少出1張善良卡、1張邪惡卡，才會進入特性階段。特性會在卡牌下方顯示。');
+  function renderAll(){ renderLanes(); renderHand(); updateHeader(); }
+  renderAll();
+  log('提示：A/B 在善/惡階段各至少出 1 張牌。出牌後自動換到對手；兩邊都滿足後才進入下一階段。特性會顯示在卡片下方。');
   </script>
 </body>
 </html>
