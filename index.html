@@ -1,15 +1,193 @@
 <!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>My Web Game</title>
-    <style>html,body,#app{height:100%;margin:0}#app{display:flex;align-items:center;justify-content:center;font:16px/1.4 system-ui}</style>
-  </head>
-  <body>
-    <div id="app">🎮 Hello Web Game!</div>
-    <script>
-      // 在这里挂你的游戏入口，如：new Phaser.Game(config)
-    </script>
-  </body>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>🎮 WebGame Demo — Dodge!</title>
+  <style>
+    :root { --bg:#0b1020; --fg:#e6edf3; --muted:#93a1b0; --accent:#5bd1ff; --danger:#ff6b6b; }
+    html,body { height:100%; margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji" }
+    .wrap { min-height:100%; display:grid; grid-template-rows:auto 1fr auto; }
+    header, footer { padding:12px 16px; }
+    header { display:flex; align-items:center; gap:12px; border-bottom:1px solid #1b2033; }
+    h1 { font-size:18px; margin:0; }
+    .btn { cursor:pointer; border:0; padding:10px 14px; border-radius:12px; background:#1b2747; color:var(--fg); transition:transform .06s ease, opacity .2s; }
+    .btn:hover { transform:translateY(-1px); }
+    .hud { display:flex; align-items:center; gap:12px; margin-left:auto; }
+    .tip { color:var(--muted); font-size:14px }
+    .board { display:grid; place-items:center; padding:12px; }
+    canvas { width:min(92vw,720px); height:calc(min(92vw,720px)/1.6); background:#0e142a; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.3), inset 0 0 0 1px #1b2033; }
+    .panel { text-align:center; margin-top:10px; font-size:14px; color:var(--muted); }
+    .kbd { padding:2px 6px; border-radius:6px; background:#141a33; color:#cdd9e5; border:1px solid #2a3357; font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace }
+    a { color:var(--accent); text-decoration:none }
+    a:hover { text-decoration:underline }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>🎮 Dodge! — 极简网页游戏 Demo</h1>
+      <div class="hud">
+        <button id="btnStart" class="btn">开始/重开</button>
+        <div class="tip">操作：<span class="kbd">←</span> <span class="kbd">→</span> 或 <span class="kbd">A</span>/<span class="kbd">D</span></div>
+      </div>
+    </header>
+
+    <main class="board">
+      <canvas id="game" width="900" height="560" aria-label="Game canvas"></canvas>
+      <div class="panel">目标：存活更久获得更高分。避免红色方块。可直接将此单文件作为 GitHub Pages 首页 <span class="kbd">index.html</span>。</div>
+    </main>
+
+    <footer>
+      <span>Made with ❤️ — 无需任何依赖，适合 GitHub Pages / Cloudflare Pages / Netlify / Vercel</span>
+    </footer>
+  </div>
+
+  <script>
+  (function(){
+    const cvs = document.getElementById('game');
+    const ctx = cvs.getContext('2d');
+
+    const W = cvs.width, H = cvs.height;
+    const state = { running:false, t:0, score:0, best: Number(localStorage.getItem('best')||0), 
+                    player:{x:W/2, y:H-60, w:46, h:12, vx:0},
+                    obstacles:[], speed: 1.0 };
+
+    const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+    const rnd=(a,b)=>Math.random()*(b-a)+a;
+
+    function reset(){
+      state.running = true; state.t=0; state.score=0; state.obstacles.length=0; state.speed=1.0;
+      state.player.x=W/2; state.player.vx=0;
+    }
+
+    // Input
+    const keys = new Set();
+    addEventListener('keydown', e=>{ keys.add(e.key.toLowerCase()); if(['arrowleft','arrowright','a','d',' '].includes(e.key.toLowerCase())) e.preventDefault(); });
+    addEventListener('keyup', e=> keys.delete(e.key.toLowerCase()));
+
+    document.getElementById('btnStart').addEventListener('click', ()=> reset());
+
+    function spawnObstacle(){
+      const w = rnd(20, 60);
+      const x = rnd(8, W-8-w);
+      const speed = rnd(1.2, 2.2) * state.speed;
+      state.obstacles.push({x, y:-20, w, h:rnd(16,28), vy:speed});
+    }
+
+    function collide(a,b){
+      return !(a.x+a.w < b.x || b.x+b.w < a.x || a.y+a.h < b.y || b.y+b.h < a.y);
+    }
+
+    function update(dt){
+      // Player move
+      const p = state.player;
+      const acc = 1200; const maxV = 380;
+      const left = keys.has('arrowleft') || keys.has('a');
+      const right = keys.has('arrowright') || keys.has('d');
+      const dir = (right?1:0) - (left?1:0);
+      p.vx += dir * acc * dt;
+      p.vx *= 0.88; // friction
+      p.vx = clamp(p.vx, -maxV, maxV);
+      p.x = clamp(p.x + p.vx*dt, 8, W-8-p.w);
+
+      // Spawn obstacles
+      if (Math.random() < 0.012 * (1 + state.speed*0.6)) spawnObstacle();
+
+      // Move obstacles
+      for (const o of state.obstacles) o.y += o.vy;
+      // Remove off-screen
+      for (let i=state.obstacles.length-1;i>=0;i--) if (state.obstacles[i].y > H+40) state.obstacles.splice(i,1);
+
+      // Difficulty & score
+      state.t += dt; state.score = Math.floor(state.t*10);
+      state.speed = 1.0 + state.t*0.08; // slowly harder
+
+      // Collisions
+      const pb = {x:p.x, y:p.y, w:p.w, h:p.h};
+      for (const o of state.obstacles) if (collide(pb, o)) { gameOver(); break; }
+    }
+
+    function gameOver(){
+      state.running = false;
+      if (state.score > state.best){ state.best = state.score; localStorage.setItem('best', String(state.best)); }
+    }
+
+    function draw(){
+      // bg
+      ctx.clearRect(0,0,W,H);
+      // gradient bg
+      const g = ctx.createLinearGradient(0,0,0,H);
+      g.addColorStop(0,'#0d1430'); g.addColorStop(1,'#0b1022');
+      ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+
+      // lanes
+      ctx.globalAlpha = 0.12; ctx.fillStyle = '#5bd1ff';
+      for(let i=1;i<6;i++){ ctx.fillRect((W/6)*i, 0, 2, H); }
+      ctx.globalAlpha = 1;
+
+      // player
+      const p = state.player;
+      ctx.fillStyle = '#5bd1ff';
+      roundRect(ctx, p.x, p.y, p.w, p.h, 6, true);
+
+      // obstacles
+      ctx.fillStyle = '#ff6b6b';
+      for (const o of state.obstacles) roundRect(ctx, o.x, o.y, o.w, o.h, 6, true);
+
+      // HUD
+      ctx.fillStyle = '#e6edf3';
+      ctx.font = '16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+      ctx.fillText(`Score: ${state.score}`, 14, 24);
+      ctx.fillStyle = '#93a1b0';
+      ctx.fillText(`Best: ${state.best}`, 14, 44);
+
+      if (!state.running){
+        drawCenterText(`游戏结束\nScore ${state.score}  记录 ${state.best}\n按 Space 或 点击按钮重开`, 24);
+      }
+    }
+
+    function drawCenterText(text, size){
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const lines = text.split(/\n/);
+      for (let i=0;i<lines.length;i++){
+        ctx.fillStyle = 'rgba(0,0,0,.45)';
+        ctx.font = `bold ${size}px system-ui`;
+        ctx.fillText(lines[i], W/2+1, H/2 - (lines.length-1)*size*0.6/2 + i*size*0.6 + 1);
+        ctx.fillStyle = '#e6edf3';
+        ctx.fillText(lines[i], W/2, H/2 - (lines.length-1)*size*0.6/2 + i*size*0.6);
+      }
+      ctx.restore();
+    }
+
+    function roundRect(ctx, x, y, w, h, r, fill){
+      ctx.beginPath();
+      ctx.moveTo(x+r, y);
+      ctx.arcTo(x+w, y, x+w, y+h, r);
+      ctx.arcTo(x+w, y+h, x, y+h, r);
+      ctx.arcTo(x, y+h, x, y, r);
+      ctx.arcTo(x, y, x+w, y, r);
+      if (fill) ctx.fill(); else ctx.stroke();
+    }
+
+    let last=0; function loop(ts){
+      const dt = Math.min((ts-last)/1000, 0.032); last = ts;
+      if (state.running) update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+
+    addEventListener('keydown', (e)=>{
+      if ((e.key === ' ' || e.code === 'Space') && !state.running){ reset(); }
+    });
+
+    // Auto start once after first interaction on touch devices
+    addEventListener('pointerdown', ()=>{ if(!state.running && state.t===0) reset(); }, { once:true });
+
+  })();
+  </script>
+</body>
 </html>
