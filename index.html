@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>終極審判：電車難題 — 分叉軌道 Demo（即時顯示 + 可進入裁決）</title>
+  <title>終極審判：電車難題 — 分叉軌道 Demo（裁決血跡 & 撕毀特效）</title>
   <style>
     :root{ --bg:#0b1020; --panel:#0f1630; --line:#1f2a55; --fg:#e6edf3; --muted:#9aa7bd; --card:#17213f; --accent:#5bd1ff; --danger:#ff6b6b; }
     html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial}
@@ -17,19 +17,34 @@
 
     .board{display:grid;grid-template-columns:1fr 420px;gap:16px;padding:16px}
 
-    .stage{position:relative;background:var(--panel) center/cover no-repeat;border:1px solid var(--line);border-radius:16px;overflow:hidden;min-height:560px}
+    .stage{position:relative;background:#0d1533 center/cover no-repeat;border:1px solid var(--line);border-radius:16px;overflow:hidden;min-height:560px;transition:background-image .25s ease}
     .stage.has-bg{background-image:url('assets/track.png');}
-    .legend{position:absolute;inset:auto 12px 12px 12px;color:var(--muted);font-size:13px}
+    .legend{position:absolute;inset:auto 12px 12px 12px;color:var(--muted);font-size:13px;text-shadow:0 1px 0 rgba(0,0,0,.2)}
 
     .lane{position:absolute;display:flex;gap:12px;align-items:flex-end;transform-origin:left center}
     .lane.A{top:120px;left:285px;transform:rotate(-8deg)}
     .lane.B{bottom:118px;left:285px;transform:rotate(8deg)}
 
-    .card{background:var(--card);border:1px solid #2b3a6b;border-radius:10px;padding:6px 8px;min-width:150px;max-width:240px;position:relative}
+    .card{background:var(--card);border:1px solid #2b3a6b;border-radius:10px;padding:6px 8px;min-width:150px;max-width:240px;position:relative;box-shadow:0 6px 18px rgba(0,0,0,.25)}
     .card .type{font-size:12px;color:var(--muted)}
     .card .title{font-weight:700}
     .mods{margin-top:4px;display:flex;flex-direction:column;gap:2px}
     .mod{font-size:11px;background:#1a2548;border:1px solid #33437a;border-radius:8px;padding:2px 6px;color:#cfe4ff;align-self:flex-start}
+
+    /* —— 撕毀/血跡特效 —— */
+    .card.destroyed{position:relative;overflow:hidden;animation:tearExit .8s ease forwards;filter:saturate(.7) contrast(1.1)}
+    .card.destroyed::before{
+      content:"";position:absolute;inset:-8px;pointer-events:none;
+      background:
+        url('assets/blood_splash.png') center/cover no-repeat,
+        repeating-linear-gradient(45deg, rgba(255,255,255,.06) 0 6px, rgba(255,255,255,0) 6px 12px);
+      mix-blend-mode:screen;opacity:.9;
+    }
+    .card.destroyed::after{
+      content:"";position:absolute;left:-10%;right:-10%;top:48%;height:4px;background:linear-gradient(90deg, transparent, rgba(255,255,255,.4), transparent);
+      filter:blur(.6px);transform:rotate(2deg);
+    }
+    @keyframes tearExit{ 0%{transform:rotate(0) scale(1);opacity:1} 60%{transform:rotate(12deg) scale(.94)} 100%{transform:rotate(18deg) scale(.8);opacity:0} }
 
     .side{display:grid;grid-template-rows:auto 1fr}
     .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px}
@@ -45,7 +60,7 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>🎚️ 電車難題 — 分叉軌道（即時顯示 + 可進入裁決）</h1>
+      <h1>🎚️ 電車難題 — 分叉軌道（裁決血跡 & 撕毀特效）</h1>
       <div style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span class="pill">當前玩家：<b id="turnPlayer">A</b></span>
         <span class="pill">階段：<b id="phaseLabel">善良卡</b></span>
@@ -60,7 +75,7 @@
       <section class="stage has-bg" id="stage">
         <div class="lane A" id="laneA" data-side="A"></div>
         <div class="lane B" id="laneB" data-side="B"></div>
-        <div class="legend">流程：A/B 各在自己軌道放 ≥1【善】 → A/B 各在對方軌道放 ≥1【惡】 → 特性（雙方可輪流出）→ 裁決。</div>
+        <div class="legend">流程：A/B 各在自己軌道放 ≥1【善】 → A/B 各在對方軌道放 ≥1【惡】 → 特性（雙方可輪流出）→ 裁決（切背景 + 撕毀）。</div>
       </section>
 
       <aside class="side">
@@ -80,7 +95,7 @@
     </main>
 
     <footer>
-      <span class="pill">提示：特性顯示在卡片下方的小徽章區。特性階段可用「切換玩家」輪流放置。</span>
+      <span class="pill">把血腥背景放到 <code>assets/track_blood.png</code>，血跡貼圖可選 <code>assets/blood_splash.png</code>（可用占位）。</span>
     </footer>
   </div>
 
@@ -109,11 +124,11 @@
   const btnJudge = document.getElementById('btnJudge');
   const btnSwitch = document.getElementById('btnSwitch');
   const turnPlayer = document.getElementById('turnPlayer');
+  const stageEl = document.getElementById('stage');
 
   const other = p=> p==='A'?'B':'A';
   const tabLabel = t => t==='innocent'?'善': t==='guilty'?'惡':'特';
-  function log(m){ logEl.textContent += `${new Date().toLocaleTimeString()} ${m}
-`; logEl.scrollTop = logEl.scrollHeight; }
+  function log(m){ logEl.textContent += `${new Date().toLocaleTimeString()} ${m}\n`; logEl.scrollTop = logEl.scrollHeight; }
 
   // ---------- 手牌 ----------
   function renderHand(){
@@ -158,7 +173,6 @@
       card.mods.push({title:s.title, owner:s.from});
       state.hands[s.from].modifier.splice(s.index,1);
       state.selected=null;
-      // 立即刷新顯示特性（修復延遲顯示問題）
       renderAll();
       log(`在「${card.title}」上疊加特性：${card.mods.slice(-1)[0].title}`);
     }, true);
@@ -166,7 +180,7 @@
     return wrap;
   }
 
-  // ---------- 出牌邏輯（立即刷新 + 自動輪到對手） ----------
+  // ---------- 出牌邏輯（即時刷新 + 自動輪到對手） ----------
   function playCard(sel){
     if (!sel) return;
     if (sel.type==='modifier'){ return; }
@@ -180,37 +194,28 @@
     state.lanes[side].push(cardObj);
     state.hands[sel.from][sel.type].splice(sel.index,1);
 
-    // 先立即渲染，確保卡片即時出現在畫面上
     renderAll();
     log(`玩家 ${me} 在軌道 ${side} 出【${tabLabel(sel.type)}】「${sel.title}」`);
 
-    // 出牌後：若對手在本階段尚未滿足 ≥1 張要求 → 輪到對手
     if (state.phase==='innocent'){
       if (!state.requirements[other(me)].innocent) state.turn = other(me);
     } else if (state.phase==='guilty'){
       if (!state.requirements[other(me)].guilty) state.turn = other(me);
     }
 
-    // 若雙方都已滿足，推進到下一階段
     if (state.phase==='innocent' && state.requirements.A.innocent && state.requirements.B.innocent){
-      state.phase='guilty'; state.turn='A'; state.activeTab='guilty';
-      updateHeader(); renderAll();
-      log('已進入【邪惡卡】階段：A/B 需各向對方軌道至少出 1 張');
+      state.phase='guilty'; state.turn='A'; state.activeTab='guilty'; updateHeader(); renderAll();
+      log('已進入【邪惡卡】階段');
     } else if (state.phase==='guilty' && state.requirements.A.guilty && state.requirements.B.guilty){
-      state.phase='modifier'; state.turn='A'; state.activeTab='modifier';
-      updateHeader(); renderAll();
-      log('已進入【特性】階段：雙方可在任一卡上疊加特性，完成後點「進入裁決」');
-    } else {
-      // 若仍在同一階段，更新標頭/手牌以反映可能的換人
-      updateHeader(); renderHand();
-    }
+      state.phase='modifier'; state.turn='A'; state.activeTab='modifier'; updateHeader(); renderAll();
+      log('已進入【特性】階段，完成後點「進入裁決」');
+    } else { updateHeader(); renderHand(); }
   }
 
   // ---------- 裁決 / 階段控制 ----------
   btnNext.onclick = ()=>{
     if (state.phase==='modifier'){
-      state.phase='judge';
-      updateHeader(); renderAll();
+      state.phase='judge'; updateHeader(); renderAll();
       log('進入【裁決】階段，請點「列車長裁決」');
     }
   };
@@ -220,8 +225,14 @@
     const side = prompt('列車長選擇撞哪條軌道？輸入 A 或 B');
     if (side==='A'||side==='B'){
       log(`列車長裁決：撞 ${side} 軌道`);
-      state.phase='end';
-      updateHeader();
+      // 1) 切換血腥背景
+      stageEl.style.backgroundImage = "url('assets/track_blood.png')";
+      // 2) 對該軌道卡牌添加撕毀特效，帶一點錯峰動畫
+      const laneEl = side==='A'? laneA : laneB;
+      [...laneEl.querySelectorAll('.card')].forEach((el,idx)=>{
+        setTimeout(()=> el.classList.add('destroyed'), idx*120);
+      });
+      state.phase='end'; updateHeader();
     }
   };
 
@@ -241,6 +252,7 @@
     state.lanes={A:[],B:[]}; state.hands=JSON.parse(JSON.stringify(initialHands));
     state.turn='A'; state.phase='innocent'; state.activeTab='innocent'; state.selected=null;
     state.requirements={A:{innocent:false,guilty:false},B:{innocent:false,guilty:false}};
+    stageEl.style.backgroundImage = "url('assets/track.png')"; // 退回普通背景
     log('回合已重置'); updateHeader(); renderAll();
   };
 
@@ -256,7 +268,7 @@
 
   function renderAll(){ renderLanes(); renderHand(); updateHeader(); }
   renderAll();
-  log('提示：修復了卡片延遲顯示；在特性階段點「進入裁決」即可切到裁決，然後執行列車長裁決。');
+  log('提示：裁決後背景自動切換為血跡圖，且被撞軌道的卡會播放撕毀動畫。');
   </script>
 </body>
 </html>
