@@ -1,0 +1,46 @@
+name: Deploy static game to GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # 如果没有 package.json，可以删除下面两步
+      - run: npm ci
+        if: hashFiles('package-lock.json') != ''
+      - run: npm run build
+        if: hashFiles('package.json') != ''
+      # 如果你的产物在 dist/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+      # 如果没有构建、静态文件就在仓库根目录：
+      # - uses: actions/upload-pages-artifact@v3
+      #   with:
+      #     path: ./
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
