@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>終極審判：電車難題 — 分叉軌道 Demo（點選即放 / 可撤回）</title>
+  <title>終極審判：電車難題 — 分叉軌道 Demo（回合順序）</title>
   <style>
     :root{ --bg:#0b1020; --panel:#0f1630; --line:#1f2a55; --fg:#e6edf3; --muted:#9aa7bd; --card:#17213f; --accent:#5bd1ff; --danger:#ff6b6b; }
     html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial}
@@ -16,25 +16,20 @@
 
     .board{display:grid;grid-template-columns:1fr 420px;gap:16px;padding:16px}
 
-    /* 舞台與背景 */
     .stage{position:relative;background:var(--panel) center/cover no-repeat;border:1px solid var(--line);border-radius:16px;overflow:hidden;min-height:560px}
     .stage.has-bg{background-image:url('assets/track.png');}
     .legend{position:absolute;inset:auto 12px 12px 12px;color:var(--muted);font-size:13px}
 
-    /* 車道：朝右延展、沿軌道旋轉（根據你的圖片已對齊） */
     .lane{position:absolute;display:flex;gap:12px;align-items:flex-end;transform-origin:left center}
     .lane.A{top:120px;left:285px;transform:rotate(-8deg)}
     .lane.B{bottom:118px;left:285px;transform:rotate(8deg)}
 
-    /* 場上卡與修飾 */
     .card{background:var(--card);border:1px solid #2b3a6b;border-radius:10px;padding:6px 8px;min-width:150px;max-width:220px;position:relative}
     .card .type{font-size:12px;color:var(--muted)}
     .card .title{font-weight:700}
     .mods{position:absolute;left:50%;transform:translateX(-50%);top:-6px;display:flex;flex-direction:column;gap:4px}
     .mod{font-size:11px;background:#1a2548;border:1px solid #33437a;border-radius:8px;padding:2px 6px;color:#cfe4ff;align-self:center;cursor:pointer}
-    .card.removable{box-shadow:0 0 0 2px rgba(255,255,255,.1) inset}
 
-    /* 手牌側欄 */
     .side{display:grid;grid-template-rows:auto 1fr}
     .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px}
     .tabbar{display:flex;gap:8px;margin-top:6px}
@@ -44,16 +39,17 @@
     .cardBtn{background:#161f3e;border:1px solid #2a355f;border-radius:10px;padding:6px 8px;text-align:left;cursor:pointer}
     .cardBtn.sel{outline:2px solid var(--accent)}
 
-    .log{background:#0e152f;border:1px solid var(--line);border-radius:12px;padding:8px;height:180px;overflow:auto;white-space:pre-wrap;color:#cdd9e5}
+    .log{background:#0e152f;border:1px solid var(--line);border-radius:12px;padding:8px;height:200px;overflow:auto;white-space:pre-wrap;color:#cdd9e5}
   </style>
 </head>
 <body>
   <div class="wrap">
     <header>
-      <h1>🎚️ 終極審判：電車難題 — 分叉軌道（點選即放 / 可撤回）</h1>
+      <h1>🎚️ 終極審判：電車難題 — 分叉軌道（回合順序）</h1>
       <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
         <span class="pill">當前玩家：<b id="turnPlayer">A</b></span>
-        <button class="btn" id="btnSwitch">切換玩家</button>
+        <span class="pill">當前階段：<b id="phaseLabel">善良卡</b></span>
+        <button class="btn" id="btnJudge" disabled>列車長裁決</button>
         <button class="btn" id="btnReset">重置回合</button>
       </div>
     </header>
@@ -62,12 +58,12 @@
       <section class="stage has-bg" id="stage">
         <div class="lane A" id="laneA" data-side="A"></div>
         <div class="lane B" id="laneB" data-side="B"></div>
-        <div class="legend">點選手牌即可出牌：善→自己軌；惡→對方軌。特性卡：先點手牌再點場上目標卡疊加。<br/>撤回：點已放置的卡（無修飾時）可退回原玩家手牌；點修飾徽章可單獨撤回。</div>
+        <div class="legend">回合流程：己方出善 → 對方出惡 → 雙方特性 → 列車長裁決。</div>
       </section>
 
       <aside class="side">
         <div class="panel">
-          <div style="display:flex;justify-content:space-between"><span class="pill">玩家 A：善/惡/特</span><span class="pill">玩家 B：善/惡/特</span></div>
+          <div style="display:flex;justify-content:space-between"><span class="pill">玩家 A 手牌</span><span class="pill">玩家 B 手牌</span></div>
           <div class="tabbar">
             <div class="tab active" data-tab="innocent">善良卡</div>
             <div class="tab" data-tab="guilty">邪惡卡</div>
@@ -83,21 +79,22 @@
     </main>
 
     <footer>
-      <span class="pill">下一步我可加：回合順序、列車長裁決、計分與輪次。</span>
+      <span class="pill">下一步我可加：計分與多輪次。</span>
     </footer>
   </div>
 
   <script>
-  // ------- 狀態 -------
   const state = {
     turn:'A',
     hands:{
       A:{innocent:['天才醫生','幼兒園老師','氣候科學家'],guilty:['逃犯','邪教頭目','網路詐騙犯'],modifier:['其實是你表親','只有一週壽命','其研究將拯救百萬人']},
       B:{innocent:['消防員','流浪貓救助者','志願者'],guilty:['獵人偷獵者','戰犯','惡霸房東'],modifier:['暗地裡資助慈善','其實是AI複製體','會發明清潔能源']},
     },
-    lanes:{A:[],B:[]}, // 卡：{title,type,owner,mods:[{title,owner}]}
+    lanes:{A:[],B:[]},
     activeTab:'innocent',
-    selected:null // 從手牌選中的卡 {type,title,from,index}
+    selected:null,
+    phase:'innocent', // innocent -> guilty -> modifier -> judge
+    judgeSide:null
   };
   const initialHands = JSON.parse(JSON.stringify(state.hands));
 
@@ -105,11 +102,13 @@
   const laneA = document.getElementById('laneA');
   const laneB = document.getElementById('laneB');
   const logEl = document.getElementById('log');
+  const phaseLabel = document.getElementById('phaseLabel');
+  const btnJudge = document.getElementById('btnJudge');
 
   function log(m){ logEl.textContent += `${new Date().toLocaleTimeString()} ${m}\n`; logEl.scrollTop = logEl.scrollHeight; }
   const tabLabel = t => t==='innocent'?'善':t==='guilty'?'惡':'特';
 
-  // ------- 手牌（點選選中/取消） -------
+  // ------- 手牌 -------
   function renderHand(){
     handEl.innerHTML='';
     const me = state.turn; const list = state.hands[me][state.activeTab];
@@ -117,19 +116,16 @@
     list.forEach((title,i)=>{
       const btn = document.createElement('div');
       btn.className='cardBtn';
-      if (state.selected && state.selected.from===me && state.selected.type===state.activeTab && state.selected.index===i) btn.classList.add('sel');
       btn.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><strong>${title}</strong><span class="pill">${tabLabel(state.activeTab)}</span></div>`;
       btn.onclick = ()=>{
-        // 點同一張 → 取消選中
-        if (state.selected && state.selected.from===me && state.selected.type===state.activeTab && state.selected.index===i){ state.selected=null; renderHand(); return; }
-        state.selected = {type:state.activeTab,title,from:me,index:i}; renderHand();
-        log(`選中【${tabLabel(state.activeTab)}】「${title}」`);
+        // 點選即出牌
+        playCard({type:state.activeTab,title,from:me,index:i});
       };
       handEl.appendChild(btn);
     });
   }
 
-  // ------- 場上卡（點擊撤回 / 疊加特性） -------
+  // ------- 場上卡 -------
   function renderLanes(){
     laneA.innerHTML=''; laneB.innerHTML='';
     state.lanes.A.forEach((c,i)=> laneA.appendChild(renderCardEl('A',i,c)));
@@ -138,71 +134,79 @@
 
   function renderCardEl(side, idx, card){
     const wrap = document.createElement('div');
-    wrap.className='card removable';
+    wrap.className='card';
     wrap.innerHTML = `<div class="type">${card.type==='innocent'?'善良':'邪惡'}・${card.owner}</div><div class="title">${card.title}</div>`;
-
-    // 修飾徽章
     const mods = document.createElement('div'); mods.className='mods';
-    card.mods.forEach((m,mi)=>{ const d=document.createElement('div'); d.className='mod'; d.title='點擊撤回此修飾'; d.textContent=m.title; d.onclick=()=>removeMod(side,idx,mi); mods.appendChild(d); });
+    card.mods.forEach(m=>{ const d=document.createElement('div'); d.className='mod'; d.textContent=m.title; });
     wrap.appendChild(mods);
-
-    // 點擊主卡：若無修飾，撤回到原玩家手牌
-    wrap.onclick = ()=>{
-      if (card.mods && card.mods.length){ log('請先撤回該卡上的特性徽章'); return; }
-      // 回到原擁有者手牌
-      state.hands[card.owner][card.type].push(card.title);
-      state.lanes[side].splice(idx,1);
-      log(`撤回 ${card.owner} 的場上卡「${card.title}」，已回到手牌`);
-      renderAll();
-    };
-
     // 作為特性卡目標
-    wrap.addEventListener('mouseenter', ()=>{
-      if (state.selected && state.selected.type==='modifier') wrap.style.boxShadow='0 0 0 2px rgba(91,209,255,.8) inset';
-    });
-    wrap.addEventListener('mouseleave', ()=>{ wrap.style.boxShadow=''; });
-    wrap.addEventListener('click', (e)=>{
-      if (!state.selected || state.selected.type!=='modifier') return; e.stopPropagation();
-      const s = state.selected; card.mods.push({title:s.title, owner:s.from});
-      state.hands[s.from].modifier.splice(s.index,1); state.selected=null;
-      log(`在「${card.title}」上疊加特性：${card.mods.slice(-1)[0].title}`);
-      renderAll();
-    }, true);
-
+    wrap.onclick = ()=>{
+      if (state.selected && state.selected.type==='modifier' && state.phase==='modifier'){
+        const s=state.selected;
+        card.mods.push({title:s.title,owner:s.from});
+        state.hands[s.from].modifier.splice(s.index,1);
+        state.selected=null;
+        log(`在「${card.title}」上疊加特性：${card.mods.slice(-1)[0].title}`);
+        renderAll();
+      }
+    };
     return wrap;
   }
 
-  function removeMod(side, cardIdx, modIdx){
-    const card = state.lanes[side][cardIdx]; const m = card.mods[modIdx];
-    // 特性回到原下牌者的手牌
-    state.hands[m.owner].modifier.push(m.title);
-    card.mods.splice(modIdx,1);
-    log(`撤回特性「${m.title}」，已回到 ${m.owner} 的手牌`);
+  // ------- 出牌邏輯 -------
+  function playCard(sel){
+    if (!sel) return;
+    if (sel.type==='modifier'){ state.selected=sel; log(`選中特性卡：${sel.title}，請點目標卡`); return; }
+
+    // 僅允許在當前階段出對應類型
+    if (state.phase!==sel.type){ log('當前階段不能出此類卡'); return; }
+
+    const me = state.turn;
+    let side=null;
+    if (sel.type==='innocent') side=me;
+    else if (sel.type==='guilty') side=(me==='A'?'B':'A');
+    if (!side){ log('不能放置'); return; }
+
+    const cardObj={title:sel.title,type:sel.type,owner:me,mods:[]};
+    state.lanes[side].push(cardObj);
+    state.hands[sel.from][sel.type].splice(sel.index,1);
+    log(`玩家 ${me} 在軌道 ${side} 出【${tabLabel(cardObj.type)}】「${cardObj.title}」`);
+
+    // 推進流程
+    if (state.phase==='innocent'){
+      state.turn = (me==='A'?'B':'A');
+      state.phase='guilty';
+    } else if (state.phase==='guilty'){
+      state.phase='modifier';
+      state.turn='A';
+    }
+    updatePhase();
     renderAll();
   }
 
-  // ------- 點選出牌：自動接到右側 -------
-  function placeSelectedIfPossible(){
-    const s = state.selected; if (!s) return;
-    const me = state.turn; let side = null;
-    if (s.type==='innocent') side = me; else if (s.type==='guilty') side = (me==='A'?'B':'A'); else return; // 特性不在這裡處理
-    const cardObj = {title:s.title,type:s.type,owner:me,mods:[]};
-    state.lanes[side].push(cardObj);
-    state.hands[s.from][s.type].splice(s.index,1);
-    state.selected = null;
-    log(`玩家 ${me} 在軌道 ${side} 接入【${tabLabel(cardObj.type)}】「${cardObj.title}」`);
-    renderAll();
+  // ------- 裁決 -------
+  btnJudge.onclick = ()=>{
+    const side = prompt('列車長選擇撞哪條軌道？輸入 A 或 B');
+    if (side && (side==='A'||side==='B')){
+      log(`列車長決定撞 ${side} 軌道！`);
+      state.phase='end';
+      btnJudge.disabled=true;
+      phaseLabel.textContent='回合結束';
+    }
+  };
+
+  function updatePhase(){
+    phaseLabel.textContent = state.phase==='innocent'?'善良卡': state.phase==='guilty'?'邪惡卡': state.phase==='modifier'?'特性卡':'裁決';
+    btnJudge.disabled = state.phase!=='modifier';
+    if (state.phase==='modifier'){ log('現在進入特性卡階段，雙方可依次打特性卡，完成後點裁決'); }
   }
 
   // ------- 控制 -------
-  document.getElementById('btnSwitch').onclick = ()=>{
-    state.turn = state.turn==='A'?'B':'A';
-    document.getElementById('turnPlayer').textContent = state.turn;
-    state.selected=null; log(`切換到玩家 ${state.turn}`); renderAll();
-  };
   document.getElementById('btnReset').onclick = ()=>{
-    state.lanes={A:[],B:[]}; state.hands=JSON.parse(JSON.stringify(initialHands)); state.turn='A'; state.selected=null;
-    document.getElementById('turnPlayer').textContent='A'; log('回合已重置'); renderAll();
+    state.lanes={A:[],B:[]}; state.hands=JSON.parse(JSON.stringify(initialHands));
+    state.turn='A'; state.phase='innocent'; state.selected=null;
+    phaseLabel.textContent='善良卡'; btnJudge.disabled=true;
+    log('回合已重置'); renderAll();
   };
 
   // Tabs
@@ -213,15 +217,9 @@
     });
   });
 
-  // 舞台點擊：如果選中的是善/惡卡，則直接落到對應軌道右側
-  document.getElementById('stage').addEventListener('click', ()=>{
-    if (!state.selected) return; if (state.selected.type==='modifier') return; // 特性需要點目標卡
-    placeSelectedIfPossible();
-  });
-
   function renderAll(){ renderLanes(); renderHand(); }
   renderAll();
-  log('提示：點選手牌即可出牌；再次點選同一手牌可取消；點場上卡可撤回（需先移除其特性）。');
+  log('提示：回合順序：A 出善 → B 出惡 → 雙方特性 → 列車長裁決');
   </script>
 </body>
 </html>
