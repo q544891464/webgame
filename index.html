@@ -3,11 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>終極審判：電車難題 — 分叉軌道 Demo（拖拽出牌 / 對齊軌道）</title>
+  <title>終極審判：電車難題 — 分叉軌道 Demo（拖拽出牌 / 落點預覽）</title>
   <style>
-    :root{
-      --bg:#0b1020; --panel:#0f1630; --line:#1f2a55; --fg:#e6edf3; --muted:#9aa7bd; --card:#17213f; --accent:#5bd1ff;
-    }
+    :root{ --bg:#0b1020; --panel:#0f1630; --line:#1f2a55; --fg:#e6edf3; --muted:#9aa7bd; --card:#17213f; --accent:#5bd1ff; }
     html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial}
     .wrap{min-height:100%;display:grid;grid-template-rows:auto 1fr auto}
     header,footer{padding:12px 16px}
@@ -18,16 +16,15 @@
 
     .board{display:grid;grid-template-columns:1fr 420px;gap:16px;padding:16px}
 
-    /* 舞台：使用你的軌道圖作背景 */
+    /* 舞台與背景 */
     .stage{position:relative;background:var(--panel) center/cover no-repeat;border:1px solid var(--line);border-radius:16px;overflow:hidden;min-height:560px}
     .stage.has-bg{background-image:url('assets/track.png');}
     .legend{position:absolute;inset:auto 12px 12px 12px;color:var(--muted);font-size:13px}
 
-    /* 卡片車道容器：沿著軌道微旋轉並從左向右接牌 */
+    /* 車道：朝右延展、沿軌道旋轉 */
     .lane{position:absolute;display:flex;gap:12px;align-items:flex-end;transform-origin:left center}
-    /* 這兩個參數對齊到你的背景：可微調 */
-    .lane.A{top:120px;left:285px;transform:rotate(-8deg)}  /* 上叉路，略向左上傾斜 */
-    .lane.B{bottom:118px;left:285px;transform:rotate(8deg)} /* 下叉路，略向左下傾斜 */
+    .lane.A{top:120px;left:285px;transform:rotate(-8deg)}  /* 上叉路 */
+    .lane.B{bottom:118px;left:285px;transform:rotate(8deg)} /* 下叉路 */
 
     /* 卡片與修飾 */
     .card{background:var(--card);border:1px solid #2b3a6b;border-radius:10px;padding:6px 8px;min-width:150px;max-width:220px;position:relative}
@@ -36,7 +33,7 @@
     .mods{position:absolute;left:50%;transform:translateX(-50%);top:-6px;display:flex;flex-direction:column;gap:4px}
     .mod{font-size:11px;background:#1a2548;border:1px solid #33437a;border-radius:8px;padding:2px 6px;color:#cfe4ff;align-self:center}
 
-    /* Sidebar（手牌） */
+    /* 手牌側欄 */
     .side{display:grid;grid-template-rows:auto 1fr}
     .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px}
     .tabbar{display:flex;gap:8px;margin-top:6px}
@@ -45,11 +42,12 @@
     .hand{display:grid;grid-template-columns:1fr;gap:8px;margin-top:8px}
     .cardBtn{background:#161f3e;border:1px solid #2a355f;border-radius:10px;padding:6px 8px;text-align:left}
 
-    /* 拖拽態樣式 */
+    /* 拖拽態與落點預覽 */
     .draggable{cursor:grab}
     .droppable{outline:2px dashed rgba(91,209,255,.35)}
     .drop-ok{outline:3px solid rgba(91,209,255,.85)}
     .drop-no{outline:3px solid rgba(255,120,120,.85)}
+    .ghost-card{opacity:.45;filter:saturate(.7);border-style:dashed}
 
     .log{background:#0e152f;border:1px solid var(--line);border-radius:12px;padding:8px;height:160px;overflow:auto;white-space:pre-wrap;color:#cdd9e5}
   </style>
@@ -57,7 +55,7 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>🎚️ 終極審判：電車難題 — 分叉軌道（拖拽出牌）</h1>
+      <h1>🎚️ 終極審判：電車難題 — 分叉軌道（拖拽 + 落點預覽）</h1>
       <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
         <span class="pill">當前玩家：<b id="turnPlayer">A</b></span>
         <button class="btn" id="btnSwitch">切換玩家</button>
@@ -69,7 +67,7 @@
       <section class="stage has-bg" id="stage">
         <div class="lane A" id="laneA" data-side="A"></div>
         <div class="lane B" id="laneB" data-side="B"></div>
-        <div class="legend">拖拽：從手牌把【善】拖到自己的軌道、【惡】拖到對方軌道；把【特性】拖到場上的任意一張卡即可疊加。</div>
+        <div class="legend">從手牌拖到舞台：善→自己軌；惡→對方軌；特性→拖到任一已放置卡疊加。支持落點“半透明預覽”。</div>
       </section>
 
       <aside class="side">
@@ -90,7 +88,7 @@
     </main>
 
     <footer>
-      <span class="pill">如需更精準對齊，微調 <code>.lane.A/.lane.B</code> 的 <code>top/left/bottom</code> 與 <code>transform: rotate()</code> 角度即可。</span>
+      <span class="pill">若需要更貼軌，微調 <code>.lane.A/.lane.B</code> 的 <code>top/left/bottom/rotate()</code>。</span>
     </footer>
   </div>
 
@@ -115,7 +113,7 @@
 
   function log(m){ logEl.textContent += `${new Date().toLocaleTimeString()} ${m}\n`; logEl.scrollTop = logEl.scrollHeight; }
 
-  // ------- 渲染：手牌（可拖拽） -------
+  // ------- 手牌（可拖拽） -------
   function tabLabel(t){return t==='innocent'?'善':t==='guilty'?'惡':'特';}
 
   function renderHand(){
@@ -124,20 +122,20 @@
     if (!list.length){ const d=document.createElement('div'); d.style.color='var(--muted)'; d.textContent='（該類卡已用盡）'; handEl.appendChild(d); return; }
     list.forEach((title,i)=>{
       const btn = document.createElement('div');
-      btn.className='cardBtn draggable';
-      btn.draggable = true;
+      btn.className='cardBtn draggable'; btn.draggable = true;
       btn.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><strong>${title}</strong><span class="pill">${tabLabel(state.activeTab)}</span></div>`;
       btn.addEventListener('dragstart', ev=>{
         state.dragging = {type:state.activeTab,title,from:me,index:i};
         ev.dataTransfer.setData('text/plain', JSON.stringify(state.dragging));
+        ev.dataTransfer.dropEffect = 'copy';
         setDropHints(true);
       });
-      btn.addEventListener('dragend', ()=>{ state.dragging=null; setDropHints(false); });
+      btn.addEventListener('dragend', ()=>{ state.dragging=null; setDropHints(false); clearGhosts(); });
       handEl.appendChild(btn);
     });
   }
 
-  // ------- 渲染：場上卡牌 -------
+  // ------- 場上卡牌 -------
   function renderLanes(){
     laneA.innerHTML=''; laneB.innerHTML='';
     state.lanes.A.forEach((c,i)=> laneA.appendChild(renderCardEl('A',i,c)));
@@ -152,30 +150,37 @@
     card.mods.forEach(m=>{ const d=document.createElement('div'); d.className='mod'; d.textContent=m; mods.appendChild(d); });
     wrap.appendChild(mods);
 
-    // 作為「特性卡」的投放目標
+    // 作為「特性卡」投放目標：提供高亮與放置
     wrap.addEventListener('dragover', ev=>{
-      const dragging = state.dragging; if (!dragging) return;
-      if (dragging.type==='modifier'){ ev.preventDefault(); wrap.classList.add('drop-ok'); }
+      const d = state.dragging; if (!d || d.type!=='modifier') return; ev.preventDefault(); wrap.classList.add('drop-ok');
     });
     wrap.addEventListener('dragleave', ()=> wrap.classList.remove('drop-ok'));
     wrap.addEventListener('drop', ev=>{
-      const dragging = state.dragging; wrap.classList.remove('drop-ok'); if (!dragging) return;
-      if (dragging.type!=='modifier') return;
-      // 疊加到此卡
-      card.mods.push(dragging.title);
-      state.hands[dragging.from].modifier.splice(dragging.index,1);
-      state.dragging=null; setDropHints(false);
+      ev.preventDefault();
+      const d = state.dragging; wrap.classList.remove('drop-ok'); if (!d || d.type!=='modifier') return;
+      card.mods.push(d.title);
+      state.hands[d.from].modifier.splice(d.index,1);
+      state.dragging=null; setDropHints(false); clearGhosts();
       log(`玩家 ${state.turn} 對「${card.title}」疊加特性：${card.mods.slice(-1)[0]}`);
       renderAll();
     });
     return wrap;
   }
 
-  // ------- 允許拖拽到哪條軌 -------
+  // ------- 允許拖到哪條軌 & 落點預覽 -------
   function canDropToLane(side){
     const d = state.dragging; if (!d) return false;
     const me = state.turn; if (d.type==='innocent') return side===me; if (d.type==='guilty') return side!==me; return false;
   }
+
+  function makeGhost(){
+    const g = document.createElement('div');
+    g.className = 'card ghost-card';
+    g.innerHTML = `<div class="type">落點預覽</div><div class="title">${state.dragging?state.dragging.title:''}</div>`;
+    return g;
+  }
+  let ghostA=null, ghostB=null;
+  function clearGhosts(){ if (ghostA){ghostA.remove(); ghostA=null;} if (ghostB){ghostB.remove(); ghostB=null;} }
 
   function setDropHints(on){
     [laneA,laneB].forEach(l=>{
@@ -191,14 +196,24 @@
   }
 
   [laneA,laneB].forEach(lane=>{
-    lane.addEventListener('dragover', ev=>{ if (canDropToLane(lane.dataset.side)) ev.preventDefault(); });
+    lane.addEventListener('dragover', ev=>{
+      if (!canDropToLane(lane.dataset.side)) return; ev.preventDefault(); ev.dataTransfer.dropEffect='copy';
+      // 顯示/更新該 lane 的 ghost
+      if (lane===laneA){ if (!ghostA){ ghostA = makeGhost(); lane.appendChild(ghostA); } }
+      else { if (!ghostB){ ghostB = makeGhost(); lane.appendChild(ghostB); } }
+    });
+    lane.addEventListener('dragleave', ()=>{
+      // 移除該 lane 的 ghost
+      if (lane===laneA && ghostA){ ghostA.remove(); ghostA=null; }
+      if (lane===laneB && ghostB){ ghostB.remove(); ghostB=null; }
+    });
     lane.addEventListener('drop', ev=>{
+      ev.preventDefault();
       const d = state.dragging; if (!d) return; if (!canDropToLane(lane.dataset.side)) return;
-      // 右側接入
       const card = {title:d.title,type:d.type,owner:state.turn,mods:[]};
       state.lanes[lane.dataset.side].push(card);
       state.hands[d.from][d.type].splice(d.index,1);
-      state.dragging=null; setDropHints(false);
+      state.dragging=null; setDropHints(false); clearGhosts();
       log(`玩家 ${state.turn} 在軌道 ${lane.dataset.side} 右側接入【${tabLabel(d.type)}】「${d.title}」`);
       renderAll();
     });
@@ -225,7 +240,7 @@
 
   function renderAll(){ renderLanes(); renderHand(); }
   renderAll();
-  log('提示：從手牌拖拽到舞台。善→自己軌；惡→對方軌；特性→拖到場上任一張卡可疊加。');
+  log('提示：拖拽出牌已修復；支持半透明“落點預覽”。下一步可加：回合順序、裁決與計分。');
   </script>
 </body>
 </html>
