@@ -67,6 +67,52 @@
   .force-landscape .board{ grid-template-columns: minmax(0, 1fr) 42vw; gap:10px; }
   .force-landscape .stage{ min-height: calc(100vh - 110px); }
   .force-landscape .side{ height: calc(100vh - 110px); overflow:auto; }
+
+  /* 轨道上的牌（不影响手牌 .cardBtn） */
+.lane .card{
+  max-width: 160px;          /* 限制单张最大宽度，避免撑出地图 */
+  white-space: normal;       /* 允许换行 */
+  word-break: break-word;    /* 长词中断 */
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+/* 标题三行夹断（有 webkit 的就三行，否则正常换行） */
+.lane .card .title{
+  display: -webkit-box;
+  -webkit-line-clamp: 3;     /* 最多显示三行 */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 悬浮时显示完整文本（用 data-full 提供完整内容） */
+.lane .card{
+  position: relative;
+}
+.lane .card:hover::after{
+  content: attr(data-full);
+  position: absolute;
+  left: 0; top: 100%;
+  margin-top: 6px;
+  background: rgba(0,0,0,.88);
+  color: #fff;
+  padding: 6px 8px;
+  border-radius: 6px;
+  white-space: normal;
+  max-width: 280px;
+  z-index: 10;
+  box-shadow: 0 6px 16px rgba(0,0,0,.35);
+}
+
+/* 让 .lane 支持按变量缩放：rotate(角度) × scale(比例) */
+.lane{
+  --lane-angle: 0deg;
+  --lane-scale: 1;
+  transform: rotate(var(--lane-angle)) scale(var(--lane-scale));
+  transform-origin: left center;
+}
+
 </style>
 </head>
 <body>
@@ -293,11 +339,11 @@ function setLaneAnchors(){
 
   laneA.style.left = `${A.x}px`;
   laneA.style.top  = `${A.y}px`;
-  laneA.style.transform = `rotate(${A.angle}deg)`;
+  laneA.style.setProperty('--lane-angle', `${A.angle}deg`);
 
   laneB.style.left = `${B.x}px`;
   laneB.style.top  = `${B.y}px`;
-  laneB.style.transform = `rotate(${B.angle}deg)`;
+  laneB.style.setProperty('--lane-angle', `${B.angle}deg`);
 }
 
 /* ------------------- 初始化：每邊隨機善（來自牌庫） ------------------- */
@@ -339,25 +385,66 @@ function renderLanes(){
   laneA.innerHTML=''; laneB.innerHTML='';
   state.lanes.A.forEach((c,i)=>laneA.appendChild(renderCardEl('A',i,c)));
   state.lanes.B.forEach((c,i)=>laneB.appendChild(renderCardEl('B',i,c)));
+  // ← 渲染完再适配两条轨道的缩放
+  refitLane(laneA);
+  refitLane(laneB);
 }
+
+
+function refitLane(lane){
+  // 允许的最大宽度：舞台宽度的 38%（你可调到 35%/40%）
+  const allow = stageEl.clientWidth * 0.38;
+  // 先还原 1 倍，测量实际宽度
+  lane.style.setProperty('--lane-scale', 1);
+  // 用 scrollWidth 估算当前排布宽度（包含换行）
+  const w = lane.scrollWidth;
+  // 超出则缩小，但不小于 0.7
+  const scale = w > allow ? Math.max(0.7, allow / w) : 1;
+  lane.style.setProperty('--lane-scale', scale.toFixed(3));
+}
+
+
 function renderCardEl(side, idx, card){
-  const wrap=document.createElement('div'); wrap.className='card';
+  const wrap=document.createElement('div'); 
+  wrap.className='card';
+  wrap.dataset.full = card.title;     // ← 悬浮提示用的完整文本
+
   const pos=idx+1;
-  wrap.innerHTML = `<div class="type">${card.type==='innocent'?'善良':'邪惡'}・${card.owner}・第${pos}張</div><div class="title">${card.title}</div>`;
-  const mods=document.createElement('div'); mods.className='mods';
-  card.mods.forEach(m=>{ const d=document.createElement('div'); d.className='mod'; d.textContent=m.title; mods.appendChild(d); });
+  const meta=document.createElement('div');
+  meta.className='type';
+  meta.textContent = `${card.type==='innocent'?'善良':'邪惡'}・${card.owner}・第${pos}張`;
+
+  const titleEl=document.createElement('div');
+  titleEl.className='title';
+  titleEl.textContent = card.title;   // ← 可被 CSS 做三行夹断
+
+  const mods=document.createElement('div'); 
+  mods.className='mods';
+  card.mods.forEach(m=>{
+    const d=document.createElement('div'); 
+    d.className='mod'; 
+    d.textContent=m.title; 
+    mods.appendChild(d); 
+  });
+
+  wrap.appendChild(meta);
+  wrap.appendChild(titleEl);
   wrap.appendChild(mods);
 
   if(state.phase==='modifier'){
     wrap.addEventListener('click',()=>{
       if(!(state.selected && state.selected.type==='modifier')) return;
-      const s=state.selected; card.mods.push({title:s.title,owner:s.from});
-      state.hands[s.from].modifier.splice(s.index,1); state.selected=null; renderAll();
+      const s=state.selected; 
+      card.mods.push({title:s.title,owner:s.from});
+      state.hands[s.from].modifier.splice(s.index,1); 
+      state.selected=null; 
+      renderAll();
       log(`在「${card.title}」上疊加特性：${card.mods.slice(-1)[0].title}`);
     }, true);
   }
   return wrap;
 }
+
 
 /* ------------------- 出牌 & 階段推進 ------------------- */
 function playCard(sel){
@@ -390,7 +477,7 @@ function playCard(sel){
     ['A','B'].forEach(p=>{
       // 先把上回合残留的特性手牌清掉（避免越攒越多）
       state.hands[p].modifier = [];
-      state.hands[p].modifier = drawN(state.deck.modifier, 3);
+      state.hands[p].modifier = drawN(state.deck.modifier, 5);
     });
 
     updateHeader(); renderAll(); log('已進入【特性】階段，完成後點「進入裁決」');
@@ -514,7 +601,7 @@ btnRotate.addEventListener('click', ()=>{
   const toggled = !root.classList.contains('force-landscape');
   root.classList.toggle('force-landscape', toggled);
   btnRotate.textContent = toggled ? '还原竖屏' : '横屏显示';
-  setTimeout(()=>{ setTrolleyPaths(); setLaneAnchors(); }, 60); // 佈局變更後重算路徑與車道
+  setTimeout(()=>{ setTrolleyPaths(); setLaneAnchors(); refitLane(laneA); refitLane(laneB); }, 60);
 });
 
 /* 入口：先設置路徑/車道→渲染→自動隨機善 */
@@ -527,7 +614,10 @@ window.addEventListener('load', async ()=>{
 });
 
 
-window.addEventListener('resize', ()=>{ setTrolleyPaths(); setLaneAnchors(); });
+window.addEventListener('resize', ()=>{ setTrolleyPaths(); setLaneAnchors(); refitLane(laneA); refitLane(laneB); });
+
+
+
 </script>
 </body>
 </html>
