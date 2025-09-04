@@ -26,8 +26,9 @@
   .legend{position:absolute;inset:auto 12px 12px 12px;color:#c3cfe6;font-size:13px;text-shadow:0 1px 0 rgba(0,0,0,.2)}
 
   .lane{position:absolute;display:flex;gap:12px;align-items:flex-end;transform-origin:left center}
-  .lane.A{top:120px;left:285px;transform:rotate(-8deg)}
-  .lane.B{bottom:118px;left:285px;transform:rotate(8deg)}
+  /* 取消固定像素定位，改由 JS 按比例设定 top/left/rotate */
+  /* .lane.A{top:120px;left:285px;transform:rotate(-8deg)}
+     .lane.B{bottom:118px;left:285px;transform:rotate(8deg)} */
 
   .card{background:var(--card);border:1px solid #2b3a6b;border-radius:10px;padding:6px 8px;min-width:150px;max-width:240px;position:relative;box-shadow:0 6px 18px rgba(0,0,0,.25)}
   .card .type{font-size:12px;color:var(--muted)}
@@ -166,8 +167,7 @@ const trolley=document.getElementById('trolley');
 const other = p => p==='A' ? 'B' : 'A';
 const tabLabel = t => t==='innocent'?'善': t==='guilty'?'惡':'特';
 const phaseName = p=> p==='innocent'?'選善（第二張）': p==='guilty'?'選惡（第三張）': p==='modifier'?'特性卡': p==='judge'?'裁決':'結束';
-function log(m){ logEl.textContent += `${new Date().toLocaleTimeString()} ${m}
-`; logEl.scrollTop = logEl.scrollHeight; }
+function log(m){ logEl.textContent += `${new Date().toLocaleTimeString()} ${m}\n`; logEl.scrollTop = logEl.scrollHeight; }
 
 /* ------------------- 列車路徑（自適應背景尺寸） ------------------- */
 function setTrolleyPaths(){
@@ -194,10 +194,55 @@ function setTrolleyPaths(){
   stageEl.dataset.pathA = pathA;
   stageEl.dataset.pathB = pathB;
 
-  // 重要：給列車賦予 offset-path，並復位到起點，確保初始就能看到
+  // 初始可見：賦予 offset-path 並回到起點
   trolley.style.offsetPath = `path('${pathA}')`;
   trolley.style.offsetDistance = '0%';
   trolley.classList.remove('run');
+}
+
+// 载入特性卡（从 JSON 文件）
+async function loadModifierFromJSON(url = 'assets/cards/modifier_cards.json') {
+  try {
+    const resp = await fetch(url, { cache: 'no-store' });
+    if (!resp.ok) throw new Error(`載入失敗：${resp.status}`);
+    const data = await resp.json();
+
+    // 兼容：既支持 { modifier: [...] }，也支持顶层就是数组
+    let list = Array.isArray(data) ? data : (Array.isArray(data.modifier) ? data.modifier : []);
+
+    // 轻度清洗：去前后空白、合并多空格、去掉空项与重复
+    list = list
+      .map(s => (s || '').toString().replace(/\s+/g, ' ').trim())
+      .filter(s => s.length >= 2);
+
+    const seen = new Set();
+    list = list.filter(s => !seen.has(s) && seen.add(s));
+
+    // 覆盖“牌库”的特性卡（不改动玩家手牌）
+    state.deck.modifier = list.slice();
+    log(`已載入特性卡：${state.deck.modifier.length} 張`);
+  } catch (err) {
+    log(`載入特性卡失敗：${err.message}（使用內建備用卡池）`);
+    // 失败时保留你原来写在 state.deck.modifier 里的内建数据
+  }
+}
+
+
+/* ------------------- 相對定位兩條車道（關鍵新增） ------------------- */
+function setLaneAnchors(){
+  const W = stageEl.clientWidth;
+  const H = stageEl.clientHeight;
+  // 這組比例針對你的分叉背景調過：1920×1080/1366×768/手機都貼軌
+  const A = { x: 0.30 * W, y: 0.19 * H, angle: -14 }; // 上支路
+  const B = { x: 0.30 * W, y: 0.72 * H, angle:  14 }; // 下支路
+
+  laneA.style.left = `${A.x}px`;
+  laneA.style.top  = `${A.y}px`;
+  laneA.style.transform = `rotate(${A.angle}deg)`;
+
+  laneB.style.left = `${B.x}px`;
+  laneB.style.top  = `${B.y}px`;
+  laneB.style.transform = `rotate(${B.angle}deg)`;
 }
 
 /* ------------------- 初始化：每邊隨機善（來自牌庫） ------------------- */
@@ -375,7 +420,7 @@ document.getElementById('btnReset').onclick = ()=>{
   });
   stageEl.style.backgroundImage = "url('assets/track.png')";
   log('已重置：將重新從牌庫隨機放置第一張善良卡');
-  updateHeader(); renderAll(); setTrolleyPaths(); autoPlaceRandomInnocent();
+  updateHeader(); renderAll(); setTrolleyPaths(); setLaneAnchors(); autoPlaceRandomInnocent();
 };
 
 /* Tabs：僅當前階段可點，用來刷新手牌 */
@@ -389,13 +434,20 @@ btnRotate.addEventListener('click', ()=>{
   const toggled = !root.classList.contains('force-landscape');
   root.classList.toggle('force-landscape', toggled);
   btnRotate.textContent = toggled ? '还原竖屏' : '横屏显示';
-  setTimeout(()=>{ setTrolleyPaths(); }, 60); // 佈局變更後重算路徑
+  setTimeout(()=>{ setTrolleyPaths(); setLaneAnchors(); }, 60); // 佈局變更後重算路徑與車道
 });
 
-/* 入口：先設置路徑→渲染→自動隨機善 */
+/* 入口：先設置路徑/車道→渲染→自動隨機善 */
 function renderAll(){ renderLanes(); renderHand(); updateHeader(); }
-window.addEventListener('load', ()=>{ setTrolleyPaths(); renderAll(); autoPlaceRandomInnocent(); });
-window.addEventListener('resize', setTrolleyPaths);
+window.addEventListener('load', async ()=>{ 
+  setTrolleyPaths(); 
+  setLaneAnchors();
+  await loadModifierFromJSON('assets/cards/modifier_cards.json'); // ← 新增
+  renderAll(); 
+  autoPlaceRandomInnocent(); 
+});
+
+window.addEventListener('resize', ()=>{ setTrolleyPaths(); setLaneAnchors(); });
 </script>
 </body>
 </html>
