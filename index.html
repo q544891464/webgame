@@ -167,9 +167,9 @@ function drawN(deck, n){ const out=[]; while(n-- >0 && deck.length){ out.push(de
 async function buildDecksAndDeal() {
   // 1) 从 JSON 取卡池（或缓存）
   const [inn, gui, mod] = await Promise.all([
-    loadPool('innocent','assets/cards/innocent_cards.json'),
-    loadPool('guilty','assets/cards/guilty_cards.json'),
-    loadPool('modifier','assets/cards/modifier_cards.json')
+    loadPool('innocent','./assets/cards/innocent_cards.json'),
+    loadPool('guilty','./assets/cards/guilty_cards.json'),
+    loadPool('modifier','./assets/cards/modifier_cards.json')
   ]);
 
   // 2) 建立“牌库”并洗牌
