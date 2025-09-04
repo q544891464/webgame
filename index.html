@@ -125,26 +125,81 @@
 /* ------------------- 狀態 ------------------- */
 const state = {
   turn:'A',
-  hands:{
-    A:{innocent:['天才醫生','幼兒園老師','氣候科學家'],
-       guilty:['逃犯','邪教頭目','網路詐騙犯'],
-       modifier:['其實是你表親','只有一週壽命','其研究將拯救百萬人']},
-    B:{innocent:['消防員','流浪貓救助者','志願者'],
-       guilty:['獵人偷獵者','戰犯','惡霸房東'],
-       modifier:['暗地裡資助慈善','其實是AI複製體','會發明清潔能源']},
-  },
-  deck:{ // 隨機善從牌庫抽，不消耗手牌
-    innocent:['圖書館員','救生員','志工護士','善良鄰居','無辜路人','小鎮老師','動保志工','社工','科學家助理'],
-    guilty:['詐騙集團車手','偷獵者','破壞者','網路霸凌者'],
-    modifier:['其實是你遠房親戚','暗中捐款者','即將找到治療方法']
+  hands:{ A:{innocent:[], guilty:[], modifier:[]},
+          B:{innocent:[], guilty:[], modifier:[]}, },
+  deck:{ innocent:[], guilty:[], modifier:[] },
+  _fallbackPools:{ // 作为 JSON 失败时的保底池
+    innocent:['天才醫生','幼兒園老師','氣候科學家','圖書館員','志工護士','無辜路人'],
+    guilty:['逃犯','邪教頭目','網路詐騙犯','戰犯','惡霸房東'],
+    modifier:['其實是你表親','只有一週壽命','其研究將拯救百萬人','暗地裡資助慈善','會發明清潔能源']
   },
   lanes:{A:[],B:[]},
   activeTab:'innocent',
   selected:null,
-  phase:'innocent',              // innocent(第2張) → guilty(第3張) → modifier → judge → end
+  phase:'innocent',
   requirements:{A:{inn2:false,g3:false},B:{inn2:false,g3:false}},
   judgePick:null
 };
+
+
+/* ---------- 载入卡池（支持 file->http、重复去重） ---------- */
+async function loadPool(kind, url) {
+  // kind: 'innocent' | 'guilty' | 'modifier'
+  try {
+    const resp = await fetch(url, { cache: 'no-store' });
+    if (!resp.ok) throw new Error(resp.status);
+    const data = await resp.json();
+    let list = Array.isArray(data) ? data : (Array.isArray(data[kind]) ? data[kind] : []);
+    list = list.map(s => (s||'').toString().replace(/\s+/g,' ').trim()).filter(Boolean);
+    const seen = new Set(); list = list.filter(s => !seen.has(s) && seen.add(s));
+    return list;
+  } catch (e) {
+    log(`載入 ${kind} 失敗（${e.message}），使用內建備用卡池`);
+    return state._fallbackPools[kind].slice(); // 备援：你代码里原本写死的几张
+  }
+}
+
+/* ---------- 洗牌 / 抽牌 ---------- */
+function shuffle(arr){ for(let i=arr.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; }
+function drawN(deck, n){ const out=[]; while(n-- >0 && deck.length){ out.push(deck.shift()); } return out; }
+
+/* ---------- 建牌库 & 发起手（每回合） ---------- */
+async function buildDecksAndDeal() {
+  // 1) 从 JSON 取卡池（或缓存）
+  const [inn, gui, mod] = await Promise.all([
+    loadPool('innocent','assets/cards/innocent_cards.json'),
+    loadPool('guilty','assets/cards/guilty_cards.json'),
+    loadPool('modifier','assets/cards/modifier_cards.json')
+  ]);
+
+  // 2) 建立“牌库”并洗牌
+  state.deck = {
+    innocent: shuffle(inn.slice()),
+    guilty:   shuffle(gui.slice()),
+    modifier: shuffle(mod.slice())
+  };
+
+  // 3) 给两位玩家“起手牌”——建议各自 5 张善/恶/特（你可改数量）
+  const HN = { innocent:5, guilty:5, modifier:5 };
+
+  ['A','B'].forEach(p=>{
+    state.hands[p].innocent = drawN(state.deck.innocent, HN.innocent);
+    state.hands[p].guilty   = drawN(state.deck.guilty,   HN.guilty);
+    state.hands[p].modifier = drawN(state.deck.modifier, HN.modifier);
+  });
+
+  // 4) 随机善（第 1 张）从“牌库”抽，不动手牌
+  ['A','B'].forEach(side=>{
+    const top = state.deck.innocent.shift();
+    state.lanes[side].push({title:top, type:'innocent', owner:side, mods:[], random:true});
+    log(`系統：在軌道 ${side} 自牌庫放置隨機【善】「${top}」（第1張）`);
+  });
+
+  // 准备进入“选善（第二张）”
+  state.phase='innocent'; state.activeTab='innocent'; state.turn='A';
+  updateHeader(); renderAll();
+}
+
 const initialHands = JSON.parse(JSON.stringify(state.hands));
 const initialDeck  = JSON.parse(JSON.stringify(state.deck));
 
@@ -329,9 +384,16 @@ function playCard(sel){
   if(state.phase==='innocent' && state.requirements.A.inn2 && state.requirements.B.inn2){
     state.phase='guilty'; state.turn='A'; state.activeTab='guilty'; updateHeader(); renderAll(); log('已進入【選惡（第三張）】階段');
   }else if(state.phase==='guilty' && state.requirements.A.g3 && state.requirements.B.g3){
-    state.phase='modifier'; state.turn='A'; state.activeTab='modifier'; updateHeader(); renderAll(); log('已進入【特性】階段，完成後點「進入裁決」');
-  }else{
-    updateHeader(); renderHand();
+    state.phase='modifier'; state.turn='A'; state.activeTab='modifier';
+
+    // ★ 每回合进入特性阶段时，给双方重新抽本回合可选的特性（各 3 张，可改数量）
+    ['A','B'].forEach(p=>{
+      // 先把上回合残留的特性手牌清掉（避免越攒越多）
+      state.hands[p].modifier = [];
+      state.hands[p].modifier = drawN(state.deck.modifier, 3);
+    });
+
+    updateHeader(); renderAll(); log('已進入【特性】階段，完成後點「進入裁決」');
   }
 }
 
@@ -409,19 +471,37 @@ btnSwitch.onclick = ()=>{
   updateHeader(); renderHand();
 };
 
-/* 重置回合 */
-document.getElementById('btnReset').onclick = ()=>{
-  Object.assign(state,{
-    turn:'A', lanes:{A:[],B:[]},
-    hands:JSON.parse(JSON.stringify(initialHands)),
-    deck: JSON.parse(JSON.stringify(initialDeck)),
-    activeTab:'innocent', selected:null, phase:'innocent',
-    requirements:{A:{inn2:false,g3:false},B:{inn2:false,g3:false}}, judgePick:null
-  });
+/* 重置回合（新版：清場 → 重建牌庫並發牌） */
+document.getElementById('btnReset').onclick = async ()=>{
+  // 1) 清場與狀態
+  state.turn = 'A';
+  state.lanes = { A: [], B: [] };
+  state.hands = { A:{innocent:[],guilty:[],modifier:[]},
+                  B:{innocent:[],guilty:[],modifier:[]} };
+  state.deck  = { innocent:[], guilty:[], modifier:[] };
+  state.activeTab = 'innocent';
+  state.selected  = null;
+  state.phase     = 'innocent';
+  state.requirements = { A:{inn2:false,g3:false}, B:{inn2:false,g3:false} };
+  state.judgePick = null;
+
+  // 2) UI 復位
   stageEl.style.backgroundImage = "url('assets/track.png')";
-  log('已重置：將重新從牌庫隨機放置第一張善良卡');
-  updateHeader(); renderAll(); setTrolleyPaths(); setLaneAnchors(); autoPlaceRandomInnocent();
+  trolley.style.opacity = 1;
+  trolley.classList.remove('run');
+  setTrolleyPaths();   // 重新設置小車路徑
+  setLaneAnchors();    // 重算兩條擺卡車道
+  renderAll();
+  log('已重置：重新洗牌並發牌，稍候放置隨機善…');
+
+  // 3) 重新建牌庫並發牌（含：為 A/B 放置第 1 張隨機善）
+  await buildDecksAndDeal();
+
+  // buildDecksAndDeal() 內部會：載入三類 JSON → 洗牌 → 發起手
+  // → A/B 各自場上放第 1 張「隨機善」→ 設定 phase='innocent'
+  // 所以這裡不需要再呼叫 autoPlaceRandomInnocent()
 };
+
 
 /* Tabs：僅當前階段可點，用來刷新手牌 */
 document.querySelectorAll('.tab').forEach(t=>{
@@ -439,13 +519,13 @@ btnRotate.addEventListener('click', ()=>{
 
 /* 入口：先設置路徑/車道→渲染→自動隨機善 */
 function renderAll(){ renderLanes(); renderHand(); updateHeader(); }
-window.addEventListener('load', async ()=>{ 
-  setTrolleyPaths(); 
+window.addEventListener('load', async ()=>{
+  setTrolleyPaths();
   setLaneAnchors();
-  await loadModifierFromJSON('assets/cards/modifier_cards.json'); // ← 新增
-  renderAll(); 
-  autoPlaceRandomInnocent(); 
+  await buildDecksAndDeal();   // ← 先加载三类 JSON + 洗牌 + 发牌 + 放随机善
+  renderAll();
 });
+
 
 window.addEventListener('resize', ()=>{ setTrolleyPaths(); setLaneAnchors(); });
 </script>
