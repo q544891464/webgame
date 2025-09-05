@@ -25,7 +25,8 @@
   .stage.has-bg{background-image:url('assets/track.png');}
   .legend{position:absolute;inset:auto 12px 12px 12px;color:#c3cfe6;font-size:13px;text-shadow:0 1px 0 rgba(0,0,0,.2)}
 
-  .lane{position:absolute;display:flex;gap:12px;align-items:flex-end;transform-origin:left center}
+
+
   /* 取消固定像素定位，改由 JS 按比例设定 top/left/rotate */
   /* .lane.A{top:120px;left:285px;transform:rotate(-8deg)}
      .lane.B{bottom:118px;left:285px;transform:rotate(8deg)} */
@@ -68,50 +69,67 @@
   .force-landscape .stage{ min-height: calc(100vh - 110px); }
   .force-landscape .side{ height: calc(100vh - 110px); overflow:auto; }
 
-  /* 轨道上的牌（不影响手牌 .cardBtn） */
-.lane .card{
-  max-width: 160px;          /* 限制单张最大宽度，避免撑出地图 */
-  white-space: normal;       /* 允许换行 */
-  word-break: break-word;    /* 长词中断 */
-  overflow: hidden;
-  font-size: 13px;
-  line-height: 1.3;
-}
 
-/* 标题三行夹断（有 webkit 的就三行，否则正常换行） */
-.lane .card .title{
-  display: -webkit-box;
-  -webkit-line-clamp: 3;     /* 最多显示三行 */
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
+    /* 让两条车道的增长方向一致：从上往下长，别再往上“顶”出屏幕 */
+  .lane{
+    align-items: flex-start;           /* 原来用了 flex-end 导致 A/B 方向不同 */
+    transform-origin: left top;        /* 旋转以左上为原点，增长向下更稳定 */
+  }
+  /* 场上卡片（不影响手牌） */
+  .lane .card{
+    max-width: 160px;                  /* 限制宽度，避免横向撑出轨道 */
+    white-space: normal; 
+    word-break: break-word;
+    overflow: hidden;                  /* 超出隐藏（由内部区域滚动/折叠处理） */
+    font-size: 13px;
+    line-height: 1.28;
+    position: relative;
+  }
 
-/* 悬浮时显示完整文本（用 data-full 提供完整内容） */
-.lane .card{
-  position: relative;
-}
-.lane .card:hover::after{
-  content: attr(data-full);
-  position: absolute;
-  left: 0; top: 100%;
-  margin-top: 6px;
-  background: rgba(0,0,0,.88);
-  color: #fff;
-  padding: 6px 8px;
-  border-radius: 6px;
-  white-space: normal;
-  max-width: 280px;
-  z-index: 10;
-  box-shadow: 0 6px 16px rgba(0,0,0,.35);
-}
 
-/* 让 .lane 支持按变量缩放：rotate(角度) × scale(比例) */
-.lane{
-  --lane-angle: 0deg;
-  --lane-scale: 1;
-  transform: rotate(var(--lane-angle)) scale(var(--lane-scale));
-  transform-origin: left center;
-}
+  /* 标题最多 3 行，避免标题把卡片拉太高 */
+  .lane .card .title{
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+  }
+
+  .lane .card .mod{
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    background:#1a2548;
+    border:1px solid #33437a;
+    color:#cfe4ff;
+    border-radius:8px;
+    padding:2px 6px;
+    align-self:flex-start;
+  }
+
+  /* “+N 更多” 折叠按钮外观 */
+  .lane .card .mod.more{
+    background:#24325f;
+    border-color:#3b4e8a;
+    cursor:pointer;
+  }
+
+  /* （可选）悬浮时显示完整文本气泡 */
+  .lane .card:hover::after{
+    content: attr(data-full);
+    position: absolute;
+    left: 0; top: 100%;
+    margin-top: 6px;
+    background: rgba(0,0,0,.88);
+    color:#fff;
+    padding:6px 8px;
+    border-radius:6px;
+    white-space: normal;
+    max-width: 280px;
+    z-index:10;
+    box-shadow:0 6px 16px rgba(0,0,0,.35);
+  }
 
 </style>
 </head>
@@ -153,6 +171,18 @@
         </div>
       </aside>
     </main>
+
+    <!-- 特性明细弹窗（复用你已有的样式） -->
+  <div class="dialog" id="modsDlg" style="display:none">
+    <div class="box" style="background:#0f1630;border:1px solid #2a355f;border-radius:12px;padding:14px;min-width:280px;max-width:420px;color:#fff">
+      <div style="font-weight:800;font-size:16px;margin-bottom:8px">特性列表</div>
+      <div id="modsList" style="max-height:40vh;overflow:auto;line-height:1.5"></div>
+      <div style="text-align:center;margin-top:10px">
+        <button class="btn" id="modsClose">關閉</button>
+      </div>
+    </div>
+  </div>
+
 
     <div class="dialog" id="judgeDlg">
       <div class="box">
@@ -403,11 +433,10 @@ function refitLane(lane){
   lane.style.setProperty('--lane-scale', scale.toFixed(3));
 }
 
-
 function renderCardEl(side, idx, card){
   const wrap=document.createElement('div'); 
   wrap.className='card';
-  wrap.dataset.full = card.title;     // ← 悬浮提示用的完整文本
+  wrap.dataset.full = card.title;  // 悬浮提示完整标题
 
   const pos=idx+1;
   const meta=document.createElement('div');
@@ -416,23 +445,40 @@ function renderCardEl(side, idx, card){
 
   const titleEl=document.createElement('div');
   titleEl.className='title';
-  titleEl.textContent = card.title;   // ← 可被 CSS 做三行夹断
+  titleEl.textContent = card.title;
 
   const mods=document.createElement('div'); 
   mods.className='mods';
-  card.mods.forEach(m=>{
+
+  // —— 折叠显示特性：最多展示 3 个，其余收起为 “+N 更多”
+  const MAX_SHOW = 3;
+  const total = card.mods.length;
+  const toShow = card.mods.slice(0, MAX_SHOW);
+  toShow.forEach(m=>{
     const d=document.createElement('div'); 
     d.className='mod'; 
     d.textContent=m.title; 
-    mods.appendChild(d); 
+    mods.appendChild(d);
   });
+  if (total > MAX_SHOW){
+    const more=document.createElement('div');
+    more.className='mod more';
+    more.textContent = `+${total - MAX_SHOW} 更多`;
+    more.title = '點擊查看全部特性';
+    more.addEventListener('click', ()=>{
+      openModsDialog(card);
+    });
+    mods.appendChild(more);
+  }
 
   wrap.appendChild(meta);
   wrap.appendChild(titleEl);
   wrap.appendChild(mods);
 
   if(state.phase==='modifier'){
-    wrap.addEventListener('click',()=>{
+    wrap.addEventListener('click',(ev)=>{
+      // 避免点到 “+N 更多” 触发叠特性
+      if (ev.target && ev.target.classList.contains('more')) return;
       if(!(state.selected && state.selected.type==='modifier')) return;
       const s=state.selected; 
       card.mods.push({title:s.title,owner:s.from});
@@ -444,6 +490,7 @@ function renderCardEl(side, idx, card){
   }
   return wrap;
 }
+
 
 
 /* ------------------- 出牌 & 階段推進 ------------------- */
@@ -500,6 +547,19 @@ btnConfirmJudge.addEventListener('click',()=>{
   if(!state.judgePick) return; judgeDlgEl.style.display='none';
   runTrolley(state.judgePick);
 });
+
+function openModsDialog(card){
+  const dlg = document.getElementById('modsDlg');
+  const list = document.getElementById('modsList');
+  list.innerHTML = card.mods.length
+    ? card.mods.map((m,i)=> `<div>${i+1}. ${m.title}</div>`).join('')
+    : '<div style="color:#9aa7bd">（沒有特性）</div>';
+  dlg.style.display='flex';
+}
+document.getElementById('modsClose').onclick = ()=>{ 
+  document.getElementById('modsDlg').style.display='none';
+};
+
 
 function runTrolley(side){
   log(`列車長裁決：撞 ${side} 軌道`);
