@@ -71,10 +71,19 @@
 
 
     /* 让两条车道的增长方向一致：从上往下长，别再往上“顶”出屏幕 */
+  /* 车道：绝对定位 + 按变量旋转/缩放；统一从左上角生长（向下扩展） */
   .lane{
-    align-items: flex-start;           /* 原来用了 flex-end 导致 A/B 方向不同 */
-    transform-origin: left top;        /* 旋转以左上为原点，增长向下更稳定 */
+    position: absolute;           /* ← 必须：让 left/top 生效 */
+    display: flex;                /* 卡片一行排布（配合 gap） */
+    gap: 12px;
+    align-items: flex-start;      /* 统一向下生长，避免 A 往上 B 往下 */
+    transform-origin: left top;   /* 旋转/缩放以左上角为原点 */
+    /* 提供 transform 变量和默认值（供 setLaneAnchors / refitLane 使用） */
+    --lane-angle: 0deg;
+    --lane-scale: 1;
+    transform: rotate(var(--lane-angle)) scale(var(--lane-scale));
   }
+
   /* 场上卡片（不影响手牌） */
   .lane .card{
     max-width: 160px;                  /* 限制宽度，避免横向撑出轨道 */
