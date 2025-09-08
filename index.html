@@ -153,8 +153,12 @@
         <button class="btn" id="btnNext" disabled>進入裁決</button>
         <button class="btn" id="btnJudge" disabled>列車長裁決</button>
         <button class="btn" id="btnRotate">横屏显示</button>
+        <button class="btn" id="btnUndo">撤销</button>
         <button class="btn" id="btnReset">重置回合</button>
       </div>
+
+      <div id="phaseHint" style="margin-top:8px;color:#cfe4ff;font-size:14px"></div>
+
     </header>
 
     <main class="board">
@@ -223,8 +227,19 @@ const state = {
   selected:null,
   phase:'innocent',
   requirements:{A:{inn2:false,g3:false},B:{inn2:false,g3:false}},
-  judgePick:null
+  judgePick:null,
+  undoStack: []
+
 };
+
+const phaseTips = {
+  innocent: '【选善】当前玩家从手牌放 1 张善人到“自己的轨道”。A/B 轮流，直到双方各放 1 张。',
+  guilty:   '【选恶】当前玩家从手牌放 1 张恶人到“对方的轨道”。A/B 轮流，直到双方各放 1 张。',
+  modifier: '【特性】切换到“特性卡”页，先点手牌选中一张，再点场上的任意角色给TA叠特性；可点“切换玩家”让另一侧也叠。',
+  judge:    '【裁决】点击“列车长裁决”打开对话框，选择要撞哪边。',
+  end:      '【结算】已撞击；可点“重置回合”开始下一回合。'
+};
+
 
 
 /* ---------- 载入卡池（支持 file->http、重复去重） ---------- */
@@ -497,6 +512,10 @@ function renderCardEl(side, idx, card){
       log(`在「${card.title}」上疊加特性：${card.mods.slice(-1)[0].title}`);
     }, true);
   }
+
+  //撤回入栈
+  state.undoStack.push({ kind:'mod', cardSide: side, cardIndex: idx });
+
   return wrap;
 }
 
@@ -515,6 +534,10 @@ function playCard(sel){
   const card={title:sel.title,type:sel.type,owner:me,mods:[]};
   state.lanes[side].push(card);
   state.hands[sel.from][sel.type].splice(sel.index,1);
+
+  //撤回入栈
+  state.undoStack.push({ kind:'playCard', side, index: state.lanes[side].length-1 });
+
 
   renderAll();
   log(`玩家 ${me} 在軌道 ${side} 放置第${state.phase==='innocent'?2:3}張【${tabLabel(sel.type)}】「${sel.title}」`);
@@ -616,6 +639,8 @@ function updateHeader(){
     el.style.opacity = should?1:.45;
     el.style.pointerEvents = should?'auto':'none';
   });
+  document.getElementById('phaseHint').textContent = phaseTips[state.phase] || '';
+
   state.activeTab = (state.phase==='innocent')?'innocent' : (state.phase==='guilty')?'guilty' : (state.phase==='modifier')?'modifier' : state.activeTab;
 }
 
@@ -625,6 +650,22 @@ btnSwitch.onclick = ()=>{
   state.turn = other(state.turn);
   log(`切換到玩家 ${state.turn} 進行特性操作`);
   updateHeader(); renderHand();
+};
+
+//撤回按钮实现
+document.getElementById('btnUndo').onclick = ()=>{
+  const last = state.undoStack.pop();
+  if(!last) return;
+  if(last.kind==='playCard'){
+    const el = state.lanes[last.side].pop();
+    state.hands[el.owner][el.type].push(el.title);
+    log(`撤销：收回「${el.title}」`);
+  }else if(last.kind==='mod'){
+    const c = state.lanes[last.cardSide][last.cardIndex];
+    const mod = c.mods.pop();
+    if(mod){ state.hands[mod.owner].modifier.push(mod.title); log(`撤销：移除特性「${mod.title}」`); }
+  }
+  renderAll();
 };
 
 /* 重置回合（新版：清場 → 重建牌庫並發牌） */
