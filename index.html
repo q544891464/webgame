@@ -146,6 +146,11 @@
   <div class="wrap">
     <header>
       <h1>🎚️ 電車難題 — 分叉軌道</h1>
+      <select id="langSelect" style="margin-left:8px">
+        <option value="zh">中文</option>
+        <option value="ja">日本語</option>
+      </select>
+
       <div class="statusbar">
         <div class="statusItem player">玩家：<span id="turnPlayer">A</span></div>
         <div class="statusItem phase">階段：<span id="phaseLabel">隨機善已放 / 選善</span></div>
@@ -240,6 +245,63 @@ const phaseTips = {
   end:      '【结算】已撞击；可点“重置回合”开始下一回合。'
 };
 
+// --- 语言偏好（本地保存） ---
+const Lang = {
+  get() { return localStorage.getItem('lang') || 'zh'; },
+  set(v){ localStorage.setItem('lang', v); }
+};
+
+// 初始化下拉值
+const langSel = document.getElementById('langSelect');
+if (langSel){
+  langSel.value = Lang.get();
+  langSel.addEventListener('change', async ()=>{
+    Lang.set(langSel.value);
+    await buildDecksAndDeal();   // 重新读取牌库并发起手
+  });
+}
+
+
+// --- 不同语言的牌库文件路径（按你现有目录结构） ---
+const CARD_FILES = {
+  zh: {
+    innocent: './assets/cards/innocent_cards.json',
+    guilty:   './assets/cards/guilty_cards.json',
+    modifier: './assets/cards/modifier_cards.json'
+  },
+  ja: {
+    innocent: './assets/cards/innocent_cards.ja.json',
+    guilty:   './assets/cards/guilty_cards.ja.json',
+    modifier: './assets/cards/modifier_cards.ja.json'
+  }
+};
+
+// kind: 'innocent' | 'guilty' | 'modifier'
+async function loadPoolI18n(kind){
+  const lang = Lang.get();
+  const mainUrl = CARD_FILES[lang][kind];     // 目标语言文件
+  const zhUrl   = CARD_FILES.zh[kind];        // 中文原文件（回退用）
+
+  // 读取目标语言与中文（若当前就是中文，则中文回退给空数组即可）
+  const [mainJson, zhJson] = await Promise.all([
+    fetch(mainUrl).then(r => r.ok ? r.json() : ({[kind]: []})).catch(()=>({[kind]:[]})),
+    lang==='zh' ? Promise.resolve({[kind]: []})
+                : fetch(zhUrl).then(r => r.ok ? r.json() : ({[kind]: []})).catch(()=>({[kind]:[]}))
+  ]);
+
+  const mainArr = mainJson[kind] || [];
+  const zhArr   = zhJson[kind]   || [];
+
+  // 合并：优先用目标语言；为空字符串或不存在则回退中文
+  const n = Math.max(mainArr.length, zhArr.length);
+  const merged = Array.from({length:n}, (_,i)=>{
+    const s = mainArr[i];
+    if (typeof s === 'string' && s.trim() !== '') return s;  // 目标语言覆盖
+    return zhArr[i] ?? '';                                   // 回退中文 / 空
+  });
+
+  return merged;
+}
 
 
 /* ---------- 载入卡池（支持 file->http、重复去重） ---------- */
@@ -265,11 +327,11 @@ function drawN(deck, n){ const out=[]; while(n-- >0 && deck.length){ out.push(de
 
 /* ---------- 建牌库 & 发起手（每回合） ---------- */
 async function buildDecksAndDeal() {
-  // 1) 从 JSON 取卡池（或缓存）
+  // 1) 从 JSON 取卡池（按语言，并带中文回退）
   const [inn, gui, mod] = await Promise.all([
-    loadPool('innocent','./assets/cards/innocent_cards.json'),
-    loadPool('guilty','./assets/cards/guilty_cards.json'),
-    loadPool('modifier','./assets/cards/modifier_cards.json')
+    loadPoolI18n('innocent'),
+    loadPoolI18n('guilty'),
+    loadPoolI18n('modifier')
   ]);
 
   // 2) 建立“牌库”并洗牌
