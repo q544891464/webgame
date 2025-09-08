@@ -513,8 +513,7 @@ function renderCardEl(side, idx, card){
     }, true);
   }
 
-  //撤回入栈
-  state.undoStack.push({ kind:'mod', cardSide: side, cardIndex: idx });
+
 
   return wrap;
 }
@@ -535,8 +534,6 @@ function playCard(sel){
   state.lanes[side].push(card);
   state.hands[sel.from][sel.type].splice(sel.index,1);
 
-  //撤回入栈
-  state.undoStack.push({ kind:'playCard', side, index: state.lanes[side].length-1 });
 
 
   renderAll();
@@ -653,64 +650,6 @@ btnSwitch.onclick = ()=>{
 };
 
 
-// —— 1) 全局快照区 —— //
-let _lastActionSnapshot = null;
-function _snapshotState() {
-  // 只抓和画面相关的最小状态（根据你的实现酌情加字段）
-  return JSON.parse(JSON.stringify({
-    phase: state.phase,
-    turn: state.turn,
-    lanes: state.lanes,   // 两条轨道上的牌
-    hands: state.hands,   // 双方/玩家手牌
-    score: state.score ?? null
-  }));
-}
-function _restoreSnapshot(snap) {
-  if (!snap) return;
-  state.phase = snap.phase;
-  state.turn  = snap.turn;
-  state.lanes = snap.lanes;
-  state.hands = snap.hands;
-  if (snap.score) state.score = snap.score;
-  renderAll();
-  log && log('已撤销到上一步。');
-}
-
-// —— 2) 包装一个“带快照”的执行器 —— //
-function runWithSnapshot(mutatingFn) {
-  return function(...args) {
-    _lastActionSnapshot = _snapshotState();
-    const out = mutatingFn.apply(this, args);
-    // 如果这步实际上什么都没改（比如类型不合法直接 return），就丢弃快照
-    if (JSON.stringify(_snapshotState()) === JSON.stringify(_lastActionSnapshot)) {
-      _lastActionSnapshot = null;
-    }
-    return out;
-  };
-}
-
-// —— 3) 把所有“会改动局面”的入口都包一层 —— //
-// 例：出牌、贴特性、从牌堆抽到手牌、裁决结算等
-// 下列只是示例，请用你项目里真实的函数名来替换：
-playCard        = runWithSnapshot(playCard);
-applyModifier   = runWithSnapshot(applyModifier);
-drawFromDeck    = runWithSnapshot(drawFromDeck);
-openJudgeDialog = runWithSnapshot(openJudgeDialog);  // 若裁决会直接改变局面
-// ……凡是会改 state 的函数，都包一层（不需要改函数内部）
-
-// —— 4) 绑定撤销按钮 —— //
-const btnUndo = document.getElementById('btnUndo');
-if (btnUndo) {
-  btnUndo.addEventListener('click', (e) => {
-    e.preventDefault();
-    if (!_lastActionSnapshot) {
-      log && log('没有可撤销的动作。');
-      return;
-    }
-    _restoreSnapshot(_lastActionSnapshot);
-    _lastActionSnapshot = null;
-  });
-}
 
 
 /* 重置回合（新版：清場 → 重建牌庫並發牌） */
